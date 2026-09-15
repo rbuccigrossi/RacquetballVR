@@ -11,15 +11,22 @@ export function rotateVector(out, v, q) {
 }
 export function transformPoint(out, point, alignment) {
   const c = Math.cos(alignment.yaw), s = Math.sin(alignment.yaw);
-  out[0] = c * point[0] + s * point[2] + alignment.offset[0];
-  out[1] = point[1] + alignment.offset[1];
-  out[2] = -s * point[0] + c * point[2] + alignment.offset[2];
+  const [x, y, z] = point;
+  out[0] = c * x + s * z + alignment.offset[0];
+  out[1] = y + alignment.offset[1];
+  out[2] = -s * x + c * z + alignment.offset[2];
   return out;
 }
 export function transformQuaternion(out, q, yaw) {
   const s = Math.sin(yaw / 2), c = Math.cos(yaw / 2);
-  out[0] = c * q[0] + s * q[2];
-  out[1] = c * q[1] + s * q[3];
-  out[2] = c * q[2] - s * q[0];
-  out[3] = c * q[3] - s * q[1];
+  const [x, y, z, w] = q;
+  out[0] = c * x + s * z;
+  out[1] = c * y + s * w;
+  out[2] = c * z - s * x;
+  out[3] = c * w - s * y;
+}
+
+// Compose source -> intermediate -> destination, preserving 1:1 scale.
+export function composeAlignment(outer, inner) {
+  return { yaw: outer.yaw + inner.yaw, offset: transformPoint([0, 0, 0], inner.offset, outer) };
 }

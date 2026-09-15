@@ -77,11 +77,11 @@ export class Calibration {
   get instruction() {
     if (this.error) return this.error;
     if (this.collecting) return 'Hold the RIGHT controller still…';
-    if (this.complete) return 'Aligned. Check your partner’s real head and hands, then RIGHT grip to mark ready.';
+    if (this.complete) return 'Aligned. Check your partner’s real head and hands, then RIGHT grip to mark ready. Tap B to repeat A/B; hold B to recenter (P1).';
     if (this.defining) return this.stage === 0
       ? 'Choose spot A on the floor or furniture. Rest your RIGHT controller against it and press trigger.'
       : 'Choose a different stationary spot B to the side. Rest your RIGHT controller against it and press trigger.';
     if (!this.targets) return 'Your partner is choosing two physical spots. Wait for A and B.';
-    return `Touch the SAME physical spot ${this.stage === 0 ? 'A' : 'B'} your partner chose. Match controller position and direction, then RIGHT trigger. Floating labels are approximate until aligned.`;
+    return `Touch the SAME physical spot ${this.stage === 0 ? 'A' : 'B'} chosen during setup. Match controller position and direction, then RIGHT trigger. Floating labels are approximate until aligned.`;
   }
 }

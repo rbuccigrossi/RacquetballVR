@@ -51,12 +51,15 @@ export class Avatar {
     this.group.visible = Boolean(player?.tracked && player?.calibrated && player.pose && player.age < 300);
     if (!this.group.visible) return;
     for (const key of ['head', 'left', 'right']) {
+      this[key].visible = Boolean(player.pose[key]);
+      if (!player.pose[key]) continue;
       this[key].position.fromArray(player.pose[key].p);
       this[key].quaternion.fromArray(player.pose[key].q);
     }
     if (this.racquet.parent !== this[player.hand]) this[player.hand].add(this.racquet);
+    this.torso.visible = this.head.visible;
     this.torso.position.copy(this.head.position); this.torso.position.y -= 0.43;
-    this.halo.position.copy(this.head.position); this.halo.visible = warning;
+    this.halo.position.copy(this.head.position); this.halo.visible = warning && this.head.visible;
     this.mat.color.setHex(warning ? 0xff8064 : 0x83c8ff);
   }
 }

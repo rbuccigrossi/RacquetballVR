@@ -1,6 +1,6 @@
 import { validateSpace, validateStandingZone, centerStandingZone } from '../client/js/spaces.js';
 import { BALL_RADIUS, STEP, stepBall, racquetPose, hitVelocity } from '../client/js/physics.js';
-import { distance, dot } from '../client/js/math.js';
+import { distance, dot, transformPoint, transformQuaternion } from '../client/js/math.js';
 import { validateAnchors } from '../client/js/calibration.js';
 
 export const TRACKING_TIMEOUT = 300;
@@ -8,7 +8,7 @@ const vector = (v, size, limit) => Array.isArray(v) && v.length === size && v.ev
 export function validPose(pose) {
   return pose && ['head', 'left', 'right'].every(key => {
     const part = pose[key];
-    return part && vector(part.p, 3, 100) && vector(part.q, 4, 1.01) && Math.abs(Math.hypot(...part.q) - 1) < 0.05;
+    return part === null || (part && vector(part.p, 3, 100) && vector(part.q, 4, 1.01) && Math.abs(Math.hypot(...part.q) - 1) < 0.05);
   });
 }
 const copy = value => structuredClone(value);
@@ -63,7 +63,7 @@ export class Room {
     for (const player of this.players.values()) { player.calibrated = false; player.tracked = false; player.pose = null; player.previousPose = null; player.ready = false; }
   }
   healthy(now) {
-    return this.players.size === 2 && [...this.players.values()].every(p => p.calibrated && p.tracked && now - p.lastPoseAt <= TRACKING_TIMEOUT);
+    return this.players.size === 2 && [...this.players.values()].every(p => p.calibrated && p.pose && now - p.lastPoseAt <= TRACKING_TIMEOUT);
   }
   handle(connection, message, now = Date.now()) {
     const player = this.players.get(connection);
@@ -71,7 +71,7 @@ export class Room {
     if (message.type === 'pause') { this.pause('Paused by a player. Both mark ready to resume.'); return; }
     if (message.type === 'reset') { this.ball = null; return; }
     if (message.type === 'invalidate') {
-      if (player.id === this.anchorOwner) this.clearAnchors();
+      if (player.id === this.anchorOwner && message.clearAnchors !== false) this.clearAnchors();
       player.calibrated = false; player.tracked = false; player.pose = null; player.previousPose = null;
       this.pause('Alignment or tracking changed. Recalibrate before resuming.'); return;
     }
@@ -80,6 +80,24 @@ export class Room {
       this.pause('Tracking unavailable. Both mark ready when tracking returns.'); return;
     }
     if (message.rev !== this.rev) throw new Error('Room configuration changed. Rejoin and recalibrate.');
+    if (message.type === 'recenter') {
+      if (player.id !== this.anchorOwner) throw new Error('Player 1 controls the room center.');
+      if (message.anchorVersion !== this.anchorVersion) throw new Error('Room alignment changed. Retry recenter.');
+      const shift = message.shift;
+      if (!shift || !Number.isFinite(shift.yaw) || Math.abs(shift.yaw) > Math.PI * 2 || !vector(shift.offset, 3, 100) || shift.offset[1] !== 0) throw new Error('Invalid room recenter.');
+      const fromVersion = this.anchorVersion++;
+      if (this.anchors) for (const point of this.anchors) transformPoint(point, point, shift);
+      for (const p of this.players.values()) {
+        if (p.pose) for (const part of Object.values(p.pose)) if (part) {
+          transformPoint(part.p, part.p, shift); transformQuaternion(part.q, part.q, shift.yaw);
+        }
+        p.previousPose = null;
+      }
+      // Repositioning the court starts a fresh ball, retaining player alignment.
+      this.ball = null;
+      this.broadcast({ type: 'roomShift', fromVersion, anchorVersion: this.anchorVersion, shift });
+      return;
+    }
     if (message.type === 'defineAnchors') {
       if (player.id !== this.anchorOwner) throw new Error('Only the reference player can choose the two spots.');
       if (message.anchorVersion !== this.anchorVersion) throw new Error('Alignment changed. Choose the spots again.');
@@ -101,11 +119,11 @@ export class Room {
       if (!Number.isSafeInteger(message.seq) || message.seq <= player.seq) return;
       if (!validPose(message.pose)) throw new Error('Invalid tracking data.');
       player.previousPose = player.pose; player.previousPoseAt = player.lastPoseAt;
-      player.pose = copy(message.pose); player.lastPoseAt = now; player.seq = message.seq; player.tracked = true;
+      player.pose = copy(message.pose); player.lastPoseAt = now; player.seq = message.seq; player.tracked = Object.values(player.pose).some(Boolean);
       return;
     }
     if (message.type === 'ready') {
-      if (!this.healthy(now)) throw new Error('Both players need fresh head and controller tracking plus verified alignment.');
+      if (!this.healthy(now)) throw new Error('Both players must be aligned and connected to mark ready.');
       player.ready = true;
       if ([...this.players.values()].every(p => p.ready)) { this.paused = false; this.reason = 'Free play · either player can spawn or hit.'; }
       return;
@@ -120,7 +138,9 @@ export class Room {
     }
     if (this.paused || !this.healthy(now)) throw new Error('Ball is paused. Both players must be aligned, tracked, and ready.');
     if (message.type === 'spawn') {
+      if (message.anchorVersion !== this.anchorVersion) return;
       const hand = player.hand === 'right' ? 'left' : 'right';
+      if (!player.pose[hand]) return;
       const p = [...player.pose[hand].p];
       p[1] = Math.max(BALL_RADIUS + 0.02, p[1]);
       this.ball = { id: ++this.ballId, revision: 0, p, v: [0, 0, 0] };
@@ -128,6 +148,7 @@ export class Room {
       return;
     }
     if (message.type === 'hit') {
+      if (message.anchorVersion !== this.anchorVersion || !player.pose[player.hand]) return;
       const ball = this.ball;
       if (!ball || message.ballId !== ball.id || message.ballRevision !== ball.revision) return;
       if (now - player.lastHitAt < 120 || !vector(message.contact, 3, 100)) return;
@@ -136,7 +157,7 @@ export class Room {
       if (distance(message.contact, ball.p) > 0.15 + this.speed * 0.12) return;
       const current = racquetPose(paddle(), player.pose[player.hand]);
       if (distance(message.contact, current.center) > 0.42) return;
-      const old = player.previousPose ? racquetPose(paddle(), player.previousPose[player.hand]) : current;
+      const old = player.previousPose?.[player.hand] ? racquetPose(paddle(), player.previousPose[player.hand]) : current;
       const dt = (player.lastPoseAt - player.previousPoseAt) / 1000;
       const velocity = current.center.map((n, i) => dt > 0.005 && dt < 0.15 ? (n - old.center[i]) / dt : 0);
       const speed = Math.hypot(...velocity);

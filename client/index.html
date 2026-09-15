@@ -32,6 +32,7 @@
           <p class="field-help">Player 1 enters VR at the center of the clear space, facing the intended front wall. That entry position stays the play area center, including when retrying calibration. Choose spot A on the floor or furniture: rest your right controller against it and press trigger. Repeat at a distinct spot B to the side. The spots can be at different heights; no measuring is required.</p>
           <p class="field-help">Tell your partner which spots are A and B. They touch those same physical spots in order with their right controller, matching its placement and direction. Hold still briefly after each press. Suggested floating markers start around 3 feet high; they move to your chosen spots. Your partner’s labels are approximate until alignment is finished.</p>
           <p class="field-help">Passthrough shows the real room during setup when available. Keep objects fixed until both players finish. After alignment, the mint floor outline shows the play area and the cross marks its center, including while paused. Check each other’s hands before both press right grip to begin. Player proximity alerts are currently off.</p>
+          <p class="field-help">Stay in VR: tap B to repeat your A/B alignment using only the right controller. Player 1 can stand at the new center facing forward and hold B for one second to move the room for both players. The standard Meta/Oculus recenter also works when the browser reports it; if it cannot preserve alignment, follow A/B again inside VR. Temporary controller tracking loss does not pause play.</p>
           <p id="alignment-status" class="field-help" role="status">Join the sandbox, then enter VR to align.</p>
         </details>
         <div class="fields"><button id="ready-player" class="secondary" type="button" disabled>Mark ready / resume</button><button id="restart-alignment" class="secondary" type="button" disabled>Restart alignment</button></div>
@@ -41,7 +42,7 @@
         </div>
         <label class="speed-control">Ball speed <span id="speed-label">8 m/s maximum</span><input id="ball-speed" type="range" min="2" max="16" step="1" value="8" disabled></label>
         <div class="fields"><button id="clear-ball" class="secondary" type="button" disabled>Clear ball</button><label class="sound-toggle"><input id="sound-enabled" type="checkbox" checked> Positional sound</label></div>
-        <p class="field-help">In VR: opposite-hand trigger = new ball; right grip/A = ready or pause; left grip/Y = clear; X = speed; B = restart alignment. Player proximity alerts are off for physics testing. Edge and overhead cues remain enabled.</p>
+        <p class="field-help">In VR: opposite-hand trigger = new ball; right grip/A = ready or pause; left grip/Y = clear; X = speed; tap B = repeat alignment; hold B = recenter room (Player 1). Player proximity alerts are off for physics testing. Edge and overhead cues remain enabled.</p>
       </section>
       <div class="section-heading"><h2>Physical space</h2><span>FEET</span></div>
       <form id="space-form">

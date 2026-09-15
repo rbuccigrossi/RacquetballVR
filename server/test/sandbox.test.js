@@ -7,7 +7,7 @@ import { WebSocket } from 'ws';
 import { Room, TRACKING_TIMEOUT, validPose } from '../room.js';
 import { createServer } from '../server.js';
 import { Calibration, solveAlignment, centerAlignment, validateAnchors } from '../../client/js/calibration.js';
-import { transformPoint, transformQuaternion, rotateVector } from '../../client/js/math.js';
+import { transformPoint, transformQuaternion, rotateVector, composeAlignment } from '../../client/js/math.js';
 import { SPACE_PRESETS, fitStandingZone } from '../../client/js/spaces.js';
 import { BALL_RADIUS, stepBall, sweepRacquet, hitVelocity, STEP, RACQUET_MOUNT, racquetPose } from '../../client/js/physics.js';
 
@@ -177,7 +177,7 @@ test('stale tracking, loss, recenter and disconnect pause play and clear readine
   room.update(1000 + TRACKING_TIMEOUT + 1, 2);
   assert.equal(room.paused, true); assert.deepEqual(room.ball.p, p);
   assert.ok([...room.players.values()].every(player => !player.ready));
-  assert.throws(() => send('a', { type: 'ready' }, 1400), /fresh/);
+  assert.throws(() => send('a', { type: 'ready' }, 1400), /connected/);
   for (const id of ['a', 'b']) send(id, { type: 'pose', seq: 2, pose: makePose() }, 1500);
   send('a', { type: 'ready' }, 1500); send('b', { type: 'ready' }, 1500);
   assert.equal(room.paused, false);
@@ -240,10 +240,55 @@ test('real WSS clients share roles, configuration, one ball, and disconnect paus
   await waitFor(a, m => m.type === 'state' && m.players.every(p => p.tracked));
   a.send({ type: 'ready', rev }); b.send({ type: 'ready', rev });
   await waitFor(a, m => m.type === 'state' && !m.paused);
-  a.send({ type: 'spawn', rev }); b.send({ type: 'spawn', rev });
+  a.send({ type: 'spawn', rev, anchorVersion }); b.send({ type: 'spawn', rev, anchorVersion });
   const final = await waitFor(a, m => m.type === 'state' && m.ball?.id === 2);
   assert.equal(final.ball.id, (await waitFor(b, m => m.type === 'state' && m.ball?.id === 2)).ball.id);
   b.ws.close();
   const disconnected = await waitFor(a, m => m.type === 'state' && m.players.length === 1 && m.reason.includes('left'));
   assert.equal(disconnected.paused, true); assert.equal(disconnected.ball, null);
+});
+
+test('partial tracking keeps play running and never spawns or hits with a missing hand', () => {
+  const { room, send } = prepared();
+  send('a', { type: 'spawn' });
+  const id = room.ball.id;
+  for (let seq = 2; seq <= 10; seq++) {
+    const time = 1000 + seq * 40;
+    send('a', { type: 'pose', seq, pose: { head: null, left: null, right: null } }, time);
+    send('b', { type: 'pose', seq, pose: { ...makePose(1), left: null } }, time);
+    room.update(time, 2);
+    assert.equal(room.paused, false);
+  }
+  send('a', { type: 'spawn' }, 1400); assert.equal(room.ball.id, id);
+  send('a', { type: 'hit', ballId: id, ballRevision: 0, contact: [...room.ball.p], eventId: 'lost' }, 1400);
+  assert.equal(room.ball.revision, 0);
+  assert.ok([...room.players.values()].every(p => p.ready && p.calibrated));
+  assert.ok(room.tick > 0);
+});
+
+test('room recenter preserves alignment for both players and rejects stale coordinates', () => {
+  const { room, send, events } = prepared();
+  const oldVersion = room.anchorVersion, shift = { yaw: 0.8, offset: [0.7, 0, -0.3] };
+  const oldHead = [...room.players.get('a').pose.head.p];
+  assert.throws(() => send('b', { type: 'recenter', shift }), /Player 1/);
+  send('a', { type: 'spawn' });
+  send('a', { type: 'recenter', shift });
+  assert.equal(room.ball, null); assert.equal(room.paused, false);
+  assert.ok([...room.players.values()].every(p => p.calibrated && p.ready));
+  assert.deepEqual(room.players.get('a').pose.head.p, transformPoint([0, 0, 0], oldHead, shift));
+  assert.deepEqual(room.anchors[0], transformPoint([0, 0, 0], targets[0], shift));
+  assert.equal(events.at(-1).type, 'roomShift');
+  send('a', { type: 'spawn', anchorVersion: oldVersion }); assert.equal(room.ball, null);
+  assert.throws(() => send('a', { type: 'recenter', shift, anchorVersion: oldVersion }), /changed/);
+  send('a', { type: 'invalidate', clearAnchors: false });
+  assert.ok(room.anchors); assert.equal(room.players.get('b').calibrated, true);
+});
+
+test('reference reset composition maps new raw poses into unchanged shared coordinates', () => {
+  const original = { yaw: -0.7, offset: [1, 0.02, -2] };
+  const newToOld = { yaw: 1.1, offset: [-0.5, 0.1, 0.8] };
+  const raw = [0.4, 1.6, -0.9];
+  const expected = transformPoint([0, 0, 0], transformPoint([0, 0, 0], raw, newToOld), original);
+  const actual = transformPoint([0, 0, 0], raw, composeAlignment(original, newToOld));
+  assert.ok(actual.every((n, i) => Math.abs(n - expected[i]) < 1e-8));
 });

@@ -5,7 +5,7 @@ import { Avatar, createRacquet, HeadsetHUD, CalibrationMarkers } from './models.
 import { SpatialAudio } from './audio.js';
 import { BALL_RADIUS, STEP, racquetPose, sweepRacquet, hitVelocity, stepBall } from './physics.js';
 import { FEET, PLAYER_PROXIMITY_ENABLED } from './config.js';
-import { distance, rotateVector, transformPoint, transformQuaternion } from './math.js';
+import { distance, rotateVector, transformPoint, transformQuaternion, composeAlignment } from './math.js';
 
 const part = () => ({ p: [0, 0, 0], q: [0, 0, 0, 1] });
 const pose = () => ({ head: part(), left: part(), right: part() });
@@ -24,6 +24,8 @@ export class Sandbox {
     Object.assign(this, { scene, camera, rig, renderer, safeZone, spaces });
     this.network = new Network(); this.audio = new SpatialAudio();
     this.raw = pose(); this.world = pose(); this.sources = {}; this.buttons = { left: [], right: [] };
+    this.tracked = { head: false, left: false, right: false };
+    this.packet = { head: null, left: null, right: null };
     this.currentPaddle = paddle(); this.previousPaddle = paddle(); this.ballPrevious = [0, 0, 0];
     this.forward = [0, 0, -1]; this.up = [0, 1, 0]; this.paddleVelocity = [0, 0, 0];
     this.lastFrame = 0; this.lastSend = 0; this.lastHit = 0; this.hitId = 0; this.accumulator = 0; this.poseValid = false;
@@ -88,8 +90,9 @@ export class Sandbox {
         this.hasPaddle = false;
       }
       if (state.config && (state.anchorVersion !== this.anchorVersion || !this.calibration)) {
-        const defining = state.anchorOwner === this.network.id;
-        const acceptedOwnPoints = defining && this.pendingAnchors && JSON.stringify(state.anchors) === JSON.stringify(this.pendingAnchors);
+        const owner = state.anchorOwner === this.network.id;
+        const defining = owner && !state.anchors;
+        const acceptedOwnPoints = owner && this.pendingAnchors && JSON.stringify(state.anchors) === JSON.stringify(this.pendingAnchors);
         this.anchorVersion = state.anchorVersion;
         if (!acceptedOwnPoints) {
           this.calibration = new Calibration(state.config.space, { defining, targets: state.anchors, alignment: this.seedAlignment });
@@ -111,6 +114,18 @@ export class Sandbox {
       const me = state.players.find(player => player.id === this.network.id);
       document.querySelector('#ready-player').textContent = state.paused ? (me?.ready ? 'Ready · waiting for partner' : 'Mark ready / resume') : 'Pause ball';
       this.updateUI();
+    });
+    this.network.addEventListener('roomShift', event => {
+      const { shift, fromVersion, anchorVersion } = event.detail;
+      if (fromVersion !== this.anchorVersion) return; // Next state requests a fresh alignment if an event was missed.
+      this.anchorVersion = anchorVersion;
+      if (this.seedAlignment) this.seedAlignment = composeAlignment(shift, this.seedAlignment);
+      if (this.calibration?.alignment) this.calibration.alignment = composeAlignment(shift, this.calibration.alignment);
+      if (this.calibration?.targets) this.calibration.targets = this.calibration.targets.map(p => transformPoint([0, 0, 0], p, shift));
+      if (this.pendingAnchors) this.pendingAnchors = this.pendingAnchors.map(p => transformPoint([0, 0, 0], p, shift));
+      const alignment = this.calibration?.alignment || this.seedAlignment || identity;
+      this.rig.rotation.y = alignment.yaw; this.rig.position.fromArray(alignment.offset);
+      this.hasPaddle = false; this.ball = null; this.pendingHit = null; this.pendingSpawn = null;
     });
     this.network.addEventListener('impact', event => {
       const hit = event.detail;
@@ -134,15 +149,10 @@ export class Sandbox {
     const session = this.renderer.xr.getSession();
     this.isPassthrough = session.environmentBlendMode === 'alpha-blend' || session.environmentBlendMode === 'additive';
     this.hud.plane.visible = true;
-    this.seedAlignment = null; this.needsReentry = false;
+    this.seedAlignment = null; this.recenterPending = false;
     this.restartCalibration();
     this.reference = this.renderer.xr.getReferenceSpace();
-    this.resetListener = () => {
-      // A changed tracking reference cannot reuse the entry transform safely.
-      // Require a new entry instead of silently moving the playing area.
-      this.needsReentry = true;
-      this.restartCalibration();
-    };
+    this.resetListener = event => this.referenceReset(event);
     this.reference?.addEventListener('reset', this.resetListener);
     this.visibilityListener = () => { if (session.visibilityState !== 'visible') this.loseTracking(); };
     session.addEventListener('visibilitychange', this.visibilityListener);
@@ -160,15 +170,52 @@ export class Sandbox {
     this.markers.group.visible = false;
     this.scene.background = this.background; if (this.court) this.court.visible = true; this.safeZone.group.visible = true;
   }
-  restartCalibration() {
-    this.network.send({ type: 'invalidate' });
+  restartCalibration(clearAnchors = false) {
+    this.network.send({ type: 'invalidate', clearAnchors });
     const space = this.network.state?.config?.space;
     this.pendingAnchors = null;
-    if (space) this.calibration = new Calibration(space, { defining: this.network.state.anchorOwner === this.network.id, targets: this.network.state.anchors, alignment: this.seedAlignment });
+    const targets = clearAnchors ? null : this.network.state?.anchors;
+    if (space) this.calibration = new Calibration(space, { defining: this.network.state.anchorOwner === this.network.id && !targets, targets, alignment: this.seedAlignment });
     this.poseValid = false; this.hasPaddle = false; this.localPaused = true; this.pendingHit = null;
     const alignment = this.seedAlignment || identity;
     this.rig.position.fromArray(alignment.offset); this.rig.rotation.set(0, alignment.yaw, 0);
     this.updateUI();
+  }
+  referenceReset(event) {
+    const t = event.transform, q = t?.orientation, p = t?.position;
+    // WebXR defines this as NEW reference coordinates -> OLD reference coordinates.
+    // Floor spaces are gravity aligned. Unknown or tilted changes need fresh A/B.
+    const known = q && p && [q.x, q.y, q.z, q.w, p.x, p.y, p.z].every(Number.isFinite) && Math.abs(q.x) < 0.02 && Math.abs(q.z) < 0.02;
+    const owner = this.network.state?.anchorOwner === this.network.id;
+    if (known && this.seedAlignment) {
+      const delta = { yaw: 2 * Math.atan2(q.y, q.w), offset: [p.x, p.y, p.z] };
+      this.seedAlignment = composeAlignment(this.seedAlignment, delta);
+      if (this.calibration?.alignment) this.calibration.alignment = composeAlignment(this.calibration.alignment, delta);
+      if (!this.calibration?.complete) this.restartCalibration();
+      this.hasPaddle = false;
+      const alignment = this.calibration?.alignment || this.seedAlignment;
+      this.rig.rotation.y = alignment.yaw; this.rig.position.fromArray(alignment.offset);
+      this.recenterPending = owner;
+    } else {
+      // No guess based on the previous frame: the player may have moved.
+      // Stay in XR; owner starts a new center/pair, partner rematches existing A/B.
+      this.seedAlignment = null;
+      this.restartCalibration(owner);
+    }
+  }
+  recenterRoom() {
+    if (this.network.state?.anchorOwner !== this.network.id) {
+      this.error = 'Player 1 sets the room center. Tap B to repeat your A/B alignment.';
+      this.errorUntil = performance.now() + 4000; return;
+    }
+    if (!this.tracked.head) { this.recenterPending = true; return; }
+    const alignment = this.calibration?.alignment || this.seedAlignment;
+    if (!alignment) return;
+    const head = part();
+    transformPoint(head.p, this.raw.head.p, alignment);
+    transformQuaternion(head.q, this.raw.head.q, alignment.yaw);
+    this.network.send({ type: 'recenter', shift: centerAlignment(head), anchorVersion: this.anchorVersion });
+    this.recenterPending = false; this.hasPaddle = false;
   }
   loseTracking() {
     if (this.poseValid) this.network.send({ type: 'lost' });
@@ -186,7 +233,7 @@ export class Sandbox {
     if (this.court) this.court.visible = !show;
     // The aligned floor guide remains over passthrough while players get ready.
     // Do not show an unaligned guide to the matching player.
-    this.safeZone.group.visible = !this.needsReentry && Boolean(this.calibration?.complete || (this.calibration?.defining && this.seedAlignment));
+    this.safeZone.group.visible = Boolean(this.calibration?.complete || (this.calibration?.defining && this.seedAlignment));
   }
   updateUI() {
     const state = this.network.state;
@@ -199,22 +246,24 @@ export class Sandbox {
   readTracking(frame, session) {
     const reference = this.renderer.xr.getReferenceSpace();
     const viewer = frame.getViewerPose(reference);
-    if (!viewer || viewer.emulatedPosition || session.visibilityState !== 'visible') return false;
-    readTransform(this.raw.head, viewer.transform);
+    this.tracked.head = Boolean(viewer && !viewer.emulatedPosition && session.visibilityState === 'visible');
+    if (this.tracked.head) readTransform(this.raw.head, viewer.transform);
     // Capture entry from the first valid HEAD pose, even if controllers are
     // temporarily unavailable. Calibration and manual retries keep this origin.
-    if (!this.seedAlignment) {
+    if (!this.seedAlignment && this.tracked.head) {
       this.seedAlignment = centerAlignment(this.raw.head);
       if (this.calibration && !this.calibration.complete) this.calibration.alignment = this.seedAlignment;
       this.rig.rotation.y = this.seedAlignment.yaw; this.rig.position.fromArray(this.seedAlignment.offset);
     }
     this.sources.left = null; this.sources.right = null;
+    this.tracked.left = false; this.tracked.right = false;
     for (const source of session.inputSources) {
       if (!hands.includes(source.handedness) || !source.gripSpace || !source.gamepad) continue;
+      this.sources[source.handedness] = source;
       const tracked = frame.getPose(source.gripSpace, reference);
-      if (tracked && !tracked.emulatedPosition) { readTransform(this.raw[source.handedness], tracked.transform); this.sources[source.handedness] = source; }
+      if (tracked && !tracked.emulatedPosition && session.visibilityState === 'visible') { readTransform(this.raw[source.handedness], tracked.transform); this.tracked[source.handedness] = true; }
     }
-    return Boolean(this.sources.left && this.sources.right);
+    return this.tracked.head;
   }
   haptic(now, intensity = 0.8) {
     if (now - this.lastHaptic < 650) return;
@@ -227,24 +276,31 @@ export class Sandbox {
   input(now) {
     if (this.network.id === null) return;
     for (const hand of hands) {
-      const buttons = this.sources[hand].gamepad.buttons;
       const previous = this.buttons[hand];
+      if (!this.sources[hand]) { previous.length = 0; continue; }
+      const buttons = this.sources[hand].gamepad.buttons;
       for (let i = 0; i < buttons.length; i++) {
         const down = buttons[i].pressed;
+        if (hand === 'right' && i === 5) {
+          if (down && !previous[i]) { this.bStarted = now; this.bHeld = false; }
+          if (down && !this.bHeld && now - this.bStarted >= 1000) { this.bHeld = true; this.recenterRoom(); }
+          if (!down && previous[i] && !this.bHeld) this.restartCalibration();
+          previous[i] = down; continue;
+        }
         if (down && !previous[i]) {
-          if (hand === 'right' && i === 5) this.restartCalibration();
-          else if (!this.calibration?.complete) {
-            if (hand === 'right' && i === 0) this.calibration?.startSample(now);
+          if (!this.calibration?.complete) {
+            if (hand === 'right' && i === 0 && this.tracked.right && this.seedAlignment) this.calibration?.startSample(now);
           } else if (hand === 'right' && (i === 1 || i === 4)) this.readyOrPause();
           else if (hand === 'left' && (i === 1 || i === 5)) this.network.send({ type: 'reset' });
           else if (hand === 'left' && i === 4) {
             const current = this.network.state?.speed || 8;
             this.network.send({ type: 'speed', value: current < 4 ? 4 : current < 8 ? 8 : current < 12 ? 12 : 4 });
-          } else if (hand !== this.hand && i === 0 && !this.localPaused && this.network.fresh) {
+          } else if (hand !== this.hand && i === 0 && this.tracked[hand] && !this.localPaused && this.network.fresh) {
             // Replace immediately with one provisional ball, then reconcile its ID.
+            transformPoint(this.world[hand].p, this.raw[hand].p, this.calibration.alignment);
             this.pendingSpawn = { oldId: this.network.state?.ball?.id || 0, at: now };
             this.ball = { id: -1, revision: 0, p: [...this.world[hand].p], v: [0, 0, 0] }; this.pendingHit = null;
-            this.network.send({ type: 'spawn', requestId: `${this.network.id}:${now}` });
+            this.network.send({ type: 'spawn', anchorVersion: this.anchorVersion, requestId: `${this.network.id}:${now}` });
           }
         }
         previous[i] = down;
@@ -259,39 +315,33 @@ export class Sandbox {
     const state = this.network.state;
     if (!frame || !session) { this.remote.group.visible = false; this.ballMesh.visible = false; return; }
     this.hud.plane.visible = true;
-    if (this.needsReentry) {
-      this.showPhysicalRoom(true);
-      this.remote.group.visible = false; this.ballMesh.visible = false; this.markers.group.visible = false;
-      for (const hand of Object.values(this.localHands)) hand.visible = false;
-      this.hud.set('Headset recentered. Exit and enter VR again. The reference player must enter from the room center, then choose A and B again.', true);
-      return;
-    }
-    if (gap) this.loseTracking();
-    if (!this.readTracking(frame, session)) {
-      this.loseTracking(); this.remote.group.visible = false;
-      for (const hand of Object.values(this.localHands)) hand.visible = false;
-      this.hud.set('Tracking unavailable. Hold both controllers in view. Ball paused.', true);
-      return;
-    }
-    this.poseValid = true;
+    if (gap) this.hasPaddle = false;
+    this.poseValid = this.readTracking(frame, session);
+    if (this.recenterPending && this.tracked.head) this.recenterRoom();
     this.input(now);
+    if (this.calibration?.collecting && !this.tracked.right) {
+      this.calibration.collecting = false; this.calibration.error = 'Right controller tracking lost. Hold it steady and press trigger to retry this spot.';
+    }
     if (this.calibration?.collecting && this.calibration.sample(this.raw.right.p, now)) {
       const alignment = this.calibration.alignment;
       if (alignment) { this.rig.rotation.y = alignment.yaw; this.rig.position.fromArray(alignment.offset); }
       if (this.calibration.complete) {
         if (this.calibration.defining) {
           this.pendingAnchors = this.calibration.targets;
-          this.network.send({ type: 'defineAnchors', points: this.pendingAnchors });
-        } else this.network.send({ type: 'calibrated', error: this.calibration.residual });
+          this.network.send({ type: 'defineAnchors', anchorVersion: this.anchorVersion, points: this.pendingAnchors });
+        } else this.network.send({ type: 'calibrated', anchorVersion: this.anchorVersion, error: this.calibration.residual });
       }
       this.updateUI();
     }
     const alignment = this.calibration?.alignment || this.seedAlignment || identity;
     this.markers.update(this.calibration, alignment);
-    const setup = !this.calibration?.complete || state?.paused || this.localPaused || !this.network.fresh;
+    const setup = !this.tracked.head || !this.calibration?.complete || state?.paused || this.localPaused || !this.network.fresh;
     this.racquet.visible = Boolean(this.calibration?.complete);
     this.showPhysicalRoom(setup);
     for (const key of parts) {
+      this.packet[key] = this.tracked[key] ? this.world[key] : null;
+      if (key !== 'head') this.localHands[key].visible = this.tracked[key];
+      if (!this.tracked[key]) continue;
       transformPoint(this.world[key].p, this.raw[key].p, alignment);
       transformQuaternion(this.world[key].q, this.raw[key].q, alignment.yaw);
       if (key !== 'head') {
@@ -300,21 +350,22 @@ export class Sandbox {
       }
     }
     rotateVector(this.forward, forwardAxis, this.world.head.q); rotateVector(this.up, upAxis, this.world.head.q);
-    this.audio.listener(this.world.head.p, this.forward, this.up);
+    if (this.tracked.head) this.audio.listener(this.world.head.p, this.forward, this.up);
     if (this.calibration?.complete && now - this.lastSend > 1000 / 45) {
-      this.network.send({ type: 'pose', seq: ++this.network.sequence, pose: this.world }); this.lastSend = now;
+      this.network.send({ type: 'pose', anchorVersion: this.anchorVersion, seq: ++this.network.sequence, pose: this.packet }); this.lastSend = now;
     }
     const other = state?.players.find(player => player.id !== this.network.id);
     const otherFresh = this.network.fresh && other?.tracked && other.age + now - this.network.lastStateAt < 300;
     let nearest = Infinity, warning = '';
     if (PLAYER_PROXIMITY_ENABLED && this.calibration?.complete && otherFresh) {
-      for (const a of parts) for (const b of parts) nearest = Math.min(nearest, distance(this.world[a].p, other.pose[b].p));
+      for (const a of parts) for (const b of parts) if (this.tracked[a] && other.pose[b]) nearest = Math.min(nearest, distance(this.world[a].p, other.pose[b].p));
       if (nearest < this.proximityDistance) warning = `Partner nearby (${nearest.toFixed(1)} m between tracked points).`;
     }
     this.remote.update(otherFresh && this.calibration?.complete ? other : null, Boolean(warning));
     if (this.calibration?.complete && state?.config) {
       const space = state.config.space;
       for (const key of parts) {
+        if (!this.tracked[key]) continue;
         const p = this.world[key].p;
         if (Math.abs(p[0]) > space.width * FEET / 2 - space.inset * FEET || Math.abs(p[2]) > space.depth * FEET / 2 - space.inset * FEET) warning = 'Near physical edge. Check your position.';
         const zone = state.config.zone, angle = zone.yaw * Math.PI / 180;
@@ -332,13 +383,13 @@ export class Sandbox {
       for (let i = 0; i < 3; i++) this.ballPrevious[i] = this.ball.p[i];
       this.accumulator = Math.min(this.accumulator + dt, 0.05);
       while (this.accumulator >= STEP) { stepBall(this.ball, STEP, state.speed); this.accumulator -= STEP; }
-      if (this.ball.id > 0 && this.hasPaddle && now - this.lastHit > 140 && !this.pendingHit) {
+      if (this.tracked[this.hand] && this.tracked.head && this.ball.id > 0 && this.hasPaddle && now - this.lastHit > 140 && !this.pendingHit) {
         const contact = sweepRacquet(this.ballPrevious, this.ball.p, this.previousPaddle, this.currentPaddle);
         if (contact) {
           for (let i = 0; i < 3; i++) this.paddleVelocity[i] = (this.currentPaddle.center[i] - this.previousPaddle.center[i]) / dt;
           if (Math.hypot(...this.paddleVelocity) < 18) {
             const eventId = String(++this.hitId);
-            this.network.send({ type: 'hit', ballId: this.ball.id, ballRevision: this.ball.revision, contact, eventId });
+            this.network.send({ type: 'hit', anchorVersion: this.anchorVersion, ballId: this.ball.id, ballRevision: this.ball.revision, contact, eventId });
             this.pendingHit = { ballId: this.ball.id, revision: this.ball.revision, at: now };
             this.ball.v = hitVelocity(this.ball.v, this.currentPaddle.normal, this.paddleVelocity, state.speed);
             this.ball.p = contact; this.lastHit = now; this.predictedSoundId = eventId;
@@ -348,7 +399,7 @@ export class Sandbox {
       }
     }
     for (let i = 0; i < 3; i++) { this.previousPaddle.center[i] = this.currentPaddle.center[i]; this.previousPaddle.normal[i] = this.currentPaddle.normal[i]; }
-    this.hasPaddle = Boolean(active);
+    this.hasPaddle = Boolean(active && this.tracked[this.hand] && this.tracked.head);
     this.ballMesh.visible = Boolean(this.ball && this.calibration?.complete && this.network.fresh);
     if (this.ballMesh.visible) this.ballMesh.position.fromArray(this.ball.p);
     if (now - this.lastHUD > 100) {
@@ -357,7 +408,7 @@ export class Sandbox {
       if (!this.network.id) text = 'Leave VR and join the shared sandbox on the setup page first.';
       else if (!this.network.fresh) text = 'Connection stale. Ball paused. Check your LAN connection.';
       else if (!this.calibration?.complete) text = this.calibration?.instruction || 'Waiting for shared room settings.';
-      else text = `${warning || state.reason} ${state.paused ? 'Mint floor outline: play area. Cross: center. Check alignment. RIGHT grip: ready. ' : `${this.hand === 'right' ? 'LEFT' : 'RIGHT'} trigger: new ball. RIGHT grip: pause. `}LEFT grip: clear. X: speed. B: recalibrate. ${state.speed} m/s. P${this.network.id}.`;
+      else text = `${warning || state.reason} ${state.paused ? 'Mint outline: play area. Check alignment. RIGHT grip: ready. ' : `${this.hand === 'right' ? 'LEFT' : 'RIGHT'} trigger: new ball. RIGHT grip: pause. `}LEFT grip: clear. Tap B: align. Hold B: center (P1). ${state.speed} m/s. P${this.network.id}.`;
       if (now < this.errorUntil) text = this.error;
       this.hud.set(text, Boolean(warning || !this.network.fresh));
     }
