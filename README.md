@@ -2,6 +2,17 @@
 
 Two players share a local HTTPS/WebXR racquetball court. Both can spawn or hit the same ball at any time. There are no scores, turns, serve restrictions, or assigned player areas.
 
+**Solo practice** uses the same court, ball physics, racquet prediction, and audio with one headset.
+
+## Quick solo practice
+
+1. Select your physical space and choose **Solo practice** under Play mode.
+2. Click **Start solo practice**, stand at the center facing forward, and **Enter VR**.
+3. Press **right grip** to start. Press **left trigger** to drop a ball and hit it with the right racquet. No A/B calibration or second headset is needed.
+4. Right grip pauses/resumes; left grip clears the ball; X changes speed. Tap or hold B to recenter at your current position/facing. Hand switching works as in shared play.
+
+Temporary controller loss does not pause practice. System resets recover inside VR without A/B samples. The server still runs all ball physics so this tests the same behavior as shared play. Only one solo session or one shared room runs on this server at a time. When ready for two players, leave solo practice, choose **Two players**, and join with both headsets for normal A/B alignment. Switching modes does not reuse solo alignment for shared play.
+
 ## Run and connect
 
 Requires **Node.js 22+**:
@@ -125,6 +136,7 @@ Optional browser tests require Playwright. Set `PLAYWRIGHT_MODULE` to an install
 ```powershell
 node test/browser-smoke.mjs
 node test/browser-sandbox.mjs
+node test/browser-sandbox.mjs --solo
 ```
 
 `browser-smoke.mjs` uses the running port-3000 server to verify rendering, local assets, profile controls, and responsive layout; screenshots go in `artifacts/`. `browser-sandbox.mjs` starts a separate ephemeral HTTPS server, runs production client logic with two synthetic XRFrame streams, and verifies entry-center retention with delayed controllers and calibration retries, shared center alignment, passthrough outline visibility, nearby ready/play without proximity cues, avatars, spawning, prediction/server acceptance, hand switching, audio, tracking recovery, and recenter invalidation. Test browsers accept their development certificates without altering global trust.

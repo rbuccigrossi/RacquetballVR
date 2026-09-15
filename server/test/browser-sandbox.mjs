@@ -14,9 +14,10 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const url = `https://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ headless: true, channel: process.env.BROWSER_CHANNEL || undefined, args: ['--ignore-certificate-errors', '--autoplay-policy=no-user-gesture-required'] });
 const errors = [];
+const solo = process.argv.includes('--solo');
 try {
   const pages = [];
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < (solo ? 1 : 2); i++) {
     const context = await browser.newContext({ ignoreHTTPSErrors: true });
     const page = await context.newPage(); pages.push(page);
     page.on('pageerror', error => errors.push(error.message));
@@ -69,10 +70,14 @@ try {
         press(hand, button, down) { sources.find(source => source.handedness === hand).gamepad.buttons[button].pressed = down; }
       };
     }, i);
-    await page.getByRole('button', { name: 'Join shared sandbox' }).click();
+    if (solo) {
+      await page.locator('#play-mode').selectOption('solo');
+      await page.evaluate(() => { window.sim.controllersLost = false; });
+    }
+    await page.getByRole('button', { name: solo ? 'Start solo practice' : 'Join shared sandbox' }).click();
     await page.waitForFunction(() => window.sim.sandbox.network.id !== null && window.sim.sandbox.network.state?.config);
     await page.evaluate(() => window.sim.start());
-    if (i === 0) {
+    if (i === 0 && !solo) {
       await page.waitForFunction(() => window.sim.sandbox.seedAlignment);
       await page.evaluate(() => {
         window.sim.entryAlignment = structuredClone(window.sim.sandbox.seedAlignment);
@@ -93,6 +98,46 @@ try {
     await page.evaluate(([hand, index]) => window.sim.press(hand, index, false), [hand, index]);
     await page.waitForTimeout(30);
   };
+  if (solo) {
+    const page = pages[0];
+    await page.waitForFunction(() => window.sim.sandbox.calibration.complete && window.sim.sandbox.network.state.players[0].tracked);
+    assert.equal(await page.locator('#shared-alignment-guide').isVisible(), false);
+    assert.ok(await page.locator('#solo-guide').isVisible());
+    assert.equal(await page.evaluate(() => window.sim.sandbox.network.state.anchors), null);
+    assert.equal(await page.evaluate(() => window.sim.sandbox.markers.group.visible), false);
+    await tap(page, 'right', 1);
+    await page.waitForFunction(() => !window.sim.sandbox.network.state.paused && window.sim.sandbox.court.visible);
+    await page.evaluate(() => { window.sim.position('left', [-0.65, 1.3, -0.27]); window.sim.position('right', [-0.8, 1.3, 0]); });
+    await page.waitForTimeout(80);
+    await tap(page, 'left', 0);
+    await page.waitForFunction(() => window.sim.sandbox.ball?.id === 1);
+    for (const x of [-0.71, -0.62, -0.53]) {
+      await page.evaluate(x => window.sim.position('right', [x, 1.3, 0]), x);
+      await page.waitForTimeout(20);
+    }
+    await page.waitForFunction(() => window.sim.sandbox.network.state.ball?.revision > 0 && window.sim.sandbox.hitId > 0);
+    await tap(page, 'right', 1);
+    await page.waitForFunction(() => window.sim.sandbox.network.state.paused);
+    await tap(page, 'right', 1);
+    await page.waitForFunction(() => !window.sim.sandbox.network.state.paused);
+    await page.evaluate(() => { window.sim.controllersLost = true; });
+    await page.waitForTimeout(400);
+    assert.equal(await page.evaluate(() => window.sim.sandbox.network.state.paused), false);
+    await page.evaluate(() => { window.sim.controllersLost = false; window.sim.position('head', [0.3, 1.65, 0.2]); });
+    await tap(page, 'right', 5);
+    await page.waitForFunction(() => window.sim.sandbox.calibration.complete && Math.hypot(window.sim.sandbox.world.head.p[0], window.sim.sandbox.world.head.p[2]) < 0.001 && !window.sim.sandbox.ball);
+    await page.evaluate(() => window.sim.resetOrigin({ yaw: 0.3, offset: [0.2, 0, -0.4] }, false));
+    await page.waitForFunction(() => window.sim.sandbox.calibration.complete && window.sim.sandbox.network.state.players[0].calibrated);
+    assert.equal(await page.evaluate(() => window.sim.sandbox.network.state.anchors), null);
+    await page.getByRole('button', { name: 'Leave sandbox' }).click();
+    await page.waitForFunction(() => window.sim.sandbox.network.id === null);
+    await page.locator('#play-mode').selectOption('shared');
+    await page.getByRole('button', { name: 'Join shared sandbox' }).click();
+    await page.waitForFunction(() => window.sim.sandbox.network.state?.mode === 'shared' && window.sim.sandbox.network.id !== null);
+    assert.equal(await page.evaluate(() => window.sim.sandbox.calibration.complete), false);
+    assert.equal(await page.evaluate(() => window.sim.sandbox.network.state.paused), true);
+    console.log('PASS: solo browser: no A/B, one-player ready/spawn/predicted hit accepted by server, pause/resume, controller loss, in-VR recenter/reset, return to shared mode requires calibration.');
+  } else {
   const physicalPoints = [[-0.5, 0.9, -0.5], [0.6, 1.1, -0.3]];
   assert.ok(await pages[0].evaluate(() => window.sim.sandbox.markers.group.visible && window.sim.sandbox.scene.background === null && !window.sim.sandbox.court.visible));
   assert.ok(await pages[0].evaluate(() => window.sim.sandbox.safeZone.group.visible));
@@ -222,9 +267,10 @@ try {
   assert.ok(await pages[1].evaluate(() => window.sim.sandbox.calibration.complete));
   await pages[0].evaluate(() => window.sim.resetOrigin({ yaw: 0.1, offset: [0.3, 0, -0.1] }, false));
   for (const page of pages) await page.waitForFunction(() => !window.sim.sandbox.network.state.anchors && window.sim.sandbox.network.state.players.every(p => !p.calibrated) && window.sim.sandbox.calibration.stage === 0);
+  console.log('PASS: two production clients: one-controller calibration, partial/all-pose loss without pausing, automatic avatar recovery, suspension/resume without recalibration, system recenter with origin transforms, shared center through hold B, in-VR A/B fallback for unknown reset transforms, tap-B retry, spawning/hits, audio and disabled proximity cues.');
+  }
   for (const page of pages) await page.evaluate(() => { clearInterval(window.sim.timer); window.sim.sandbox.network.leave(); });
   assert.deepEqual(errors, []);
-  console.log('PASS: two production clients: one-controller calibration, partial/all-pose loss without pausing, automatic avatar recovery, suspension/resume without recalibration, system recenter with origin transforms, shared center through hold B, in-VR A/B fallback for unknown reset transforms, tap-B retry, spawning/hits, audio and disabled proximity cues.');
   console.log('This does not verify native XR presentation, physical alignment accuracy, real controller latency, or Quest frame pacing.');
 } finally {
   await browser.close();

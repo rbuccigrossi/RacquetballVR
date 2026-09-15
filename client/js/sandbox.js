@@ -58,11 +58,14 @@ export class Sandbox {
     });
     this.status = document.querySelector('#sandbox-status');
     this.joinButton = document.querySelector('#join-room');
+    this.modeSelect = document.querySelector('#play-mode');
+    this.modeSelect.addEventListener('change', () => this.renderMode());
+    this.renderMode();
     this.joinButton.addEventListener('click', () => {
       if (this.network.id !== null) { this.network.leave(); return; }
       const chosen = this.spaces.profiles[this.spaces.active];
       this.status.textContent = 'Connecting to the local sandbox…';
-      this.network.join({ ...chosen, label: this.spaces.active }, this.hand);
+      this.network.join({ ...chosen, label: this.spaces.active }, this.hand, this.modeSelect.value);
       this.audio.unlock().catch(() => {});
     });
     document.querySelector('#restart-alignment').addEventListener('click', () => this.restartCalibration());
@@ -75,14 +78,33 @@ export class Sandbox {
     });
     document.querySelector('#sound-enabled').addEventListener('change', event => { this.audio.enabled = event.target.checked; if (!event.target.checked) this.audio.stop(); });
   }
+  renderMode() {
+    const solo = this.modeSelect.value === 'solo';
+    document.querySelector('#join-help').textContent = solo ? 'Choose your physical space, start solo practice, then enter VR from the room center. Press right grip to start hitting.' : 'First player to join shares their selected space. Join here before entering VR on each headset. Leave to edit location settings.';
+    document.querySelector('#shared-alignment-guide').hidden = solo;
+    document.querySelector('#solo-guide').hidden = !solo;
+    document.querySelector('#restart-alignment').textContent = solo ? 'Recenter court' : 'Restart alignment';
+    if (this.network.id === null) this.joinButton.textContent = solo ? 'Start solo practice' : 'Join shared sandbox';
+  }
+  prepareSolo() {
+    if (this.network.state?.mode !== 'solo' || !this.seedAlignment || !this.calibration || this.calibration.complete) return;
+    this.calibration.solo = true;
+    this.calibration.alignment = this.seedAlignment;
+    this.calibration.stage = 2;
+    this.calibration.residual = 0;
+    this.network.send({ type: 'soloAligned', anchorVersion: this.anchorVersion });
+    this.updateUI();
+  }
   bindNetwork() {
     this.network.addEventListener('joined', () => {
       this.joinButton.textContent = `Leave sandbox · Player ${this.network.id}`;
+      this.modeSelect.disabled = true;
       for (const input of document.querySelectorAll('#space-form input, #space-form select, #space-form button, #zone-form input, #zone-form button')) input.disabled = true;
       for (const id of ['ready-player', 'clear-ball', 'restart-alignment', 'ball-speed']) document.getElementById(id).disabled = false;
     });
     this.network.addEventListener('state', event => {
       const state = event.detail;
+      this.modeSelect.value = state.mode || 'shared'; this.renderMode();
       if (state.config && state.rev !== this.configRev) {
         this.configRev = state.rev;
         this.safeZone.update(state.config.zone);
@@ -95,7 +117,7 @@ export class Sandbox {
         const acceptedOwnPoints = owner && this.pendingAnchors && JSON.stringify(state.anchors) === JSON.stringify(this.pendingAnchors);
         this.anchorVersion = state.anchorVersion;
         if (!acceptedOwnPoints) {
-          this.calibration = new Calibration(state.config.space, { defining, targets: state.anchors, alignment: this.seedAlignment });
+          this.calibration = new Calibration(state.config.space, { defining, targets: state.anchors, alignment: this.seedAlignment, solo: state.mode === 'solo' });
           const alignment = this.seedAlignment || identity;
           this.rig.rotation.y = alignment.yaw; this.rig.position.fromArray(alignment.offset);
         }
@@ -138,8 +160,8 @@ export class Sandbox {
       // Keep the court stationary if the socket drops while the headset is on.
       // A new join still requires a new calibration before tracking is shared.
       if (this.calibration) { this.calibration.stage = 0; this.calibration.collecting = false; }
-      this.joinButton.textContent = 'Join shared sandbox';
-      this.status.textContent = 'Disconnected. Rejoin and recalibrate before playing.';
+      this.modeSelect.disabled = false; this.renderMode();
+      this.status.textContent = this.modeSelect.value === 'solo' ? 'Disconnected. Start solo practice to reconnect.' : 'Disconnected. Rejoin and recalibrate before playing.';
       for (const input of document.querySelectorAll('#space-form input, #space-form select, #space-form button, #zone-form input, #zone-form button')) input.disabled = false;
       for (const id of ['ready-player', 'clear-ball', 'restart-alignment', 'ball-speed']) document.getElementById(id).disabled = true;
     });
@@ -171,11 +193,12 @@ export class Sandbox {
     this.scene.background = this.background; if (this.court) this.court.visible = true; this.safeZone.group.visible = true;
   }
   restartCalibration(clearAnchors = false) {
+    if (this.network.state?.mode === 'solo' && this.seedAlignment && !clearAnchors) { this.recenterRoom(); return; }
     this.network.send({ type: 'invalidate', clearAnchors });
     const space = this.network.state?.config?.space;
     this.pendingAnchors = null;
     const targets = clearAnchors ? null : this.network.state?.anchors;
-    if (space) this.calibration = new Calibration(space, { defining: this.network.state.anchorOwner === this.network.id && !targets, targets, alignment: this.seedAlignment });
+    if (space) this.calibration = new Calibration(space, { defining: this.network.state.anchorOwner === this.network.id && !targets, targets, alignment: this.seedAlignment, solo: this.network.state.mode === 'solo' });
     this.poseValid = false; this.hasPaddle = false; this.localPaused = true; this.pendingHit = null;
     const alignment = this.seedAlignment || identity;
     this.rig.position.fromArray(alignment.offset); this.rig.rotation.set(0, alignment.yaw, 0);
@@ -317,6 +340,7 @@ export class Sandbox {
     this.hud.plane.visible = true;
     if (gap) this.hasPaddle = false;
     this.poseValid = this.readTracking(frame, session);
+    this.prepareSolo();
     if (this.recenterPending && this.tracked.head) this.recenterRoom();
     this.input(now);
     if (this.calibration?.collecting && !this.tracked.right) {
@@ -408,7 +432,7 @@ export class Sandbox {
       if (!this.network.id) text = 'Leave VR and join the shared sandbox on the setup page first.';
       else if (!this.network.fresh) text = 'Connection stale. Ball paused. Check your LAN connection.';
       else if (!this.calibration?.complete) text = this.calibration?.instruction || 'Waiting for shared room settings.';
-      else text = `${warning || state.reason} ${state.paused ? 'Mint outline: play area. Check alignment. RIGHT grip: ready. ' : `${this.hand === 'right' ? 'LEFT' : 'RIGHT'} trigger: new ball. RIGHT grip: pause. `}LEFT grip: clear. Tap B: align. Hold B: center (P1). ${state.speed} m/s. P${this.network.id}.`;
+      else text = `${warning || state.reason} ${state.paused ? `Mint outline: play area. RIGHT grip: ${state.mode === 'solo' ? 'start practice' : 'ready'}. ` : `${this.hand === 'right' ? 'LEFT' : 'RIGHT'} trigger: new ball. RIGHT grip: pause. `}LEFT grip: clear. ${state.mode === 'solo' ? 'B: recenter.' : 'Tap B: align. Hold B: center (P1).'} ${state.speed} m/s. P${this.network.id}.`;
       if (now < this.errorUntil) text = this.error;
       this.hud.set(text, Boolean(warning || !this.network.fresh));
     }

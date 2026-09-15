@@ -22,7 +22,7 @@ export function attachMultiplayer(server) {
         const message = JSON.parse(raw.toString());
         if (!message || typeof message.type !== 'string') throw new Error('Invalid message.');
         if (message.type === 'join') {
-          const id = room.join(ws, message.config, message.hand);
+          const id = room.join(ws, message.config, message.hand, message.mode);
           ws.joined = true;
           send(ws, { type: 'joined', id });
         } else room.handle(ws, message, now);

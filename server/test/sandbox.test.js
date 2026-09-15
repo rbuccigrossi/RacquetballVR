@@ -13,6 +13,29 @@ import { BALL_RADIUS, stepBall, sweepRacquet, hitVelocity, STEP, RACQUET_MOUNT, 
 
 const config = { space: SPACE_PRESETS.garage, zone: fitStandingZone(SPACE_PRESETS.garage), label: 'Garage' };
 const targets = [[-0.6, 0.1, -0.3], [0.7, 0.9, -0.5]];
+test('solo session uses the real ball physics with one player and no shared anchors', () => {
+  const room = new Room();
+  room.join('a', config, 'right', 'solo');
+  const send = (message, time = 1000) => room.handle('a', { rev: room.rev, anchorVersion: room.anchorVersion, ...message }, time);
+  assert.equal(room.snapshot().mode, 'solo');
+  assert.throws(() => room.join('b', config), /session is active/);
+  send({ type: 'soloAligned' });
+  send({ type: 'pose', seq: 1, pose: makePose() });
+  send({ type: 'ready' });
+  assert.equal(room.paused, false); assert.equal(room.anchors, null);
+  send({ type: 'spawn' }); const id = room.ball.id, y = room.ball.p[1];
+  room.update(1001, 5); assert.ok(room.ball.p[1] < y);
+  send({ type: 'spawn' }); assert.equal(room.ball.id, id + 1);
+  send({ type: 'pause' }); assert.equal(room.paused, true);
+  send({ type: 'ready' }); assert.equal(room.paused, false);
+  send({ type: 'pose', seq: 2, pose: { head: makePose().head, left: null, right: null } });
+  room.update(1050, 2); assert.equal(room.paused, false);
+  room.update(1400, 2); assert.equal(room.paused, true);
+  room.leave('a'); room.join('b', config, 'right', 'shared');
+  assert.equal(room.snapshot().mode, 'shared');
+  assert.throws(() => room.handle('b', { type: 'soloAligned', rev: room.rev, anchorVersion: room.anchorVersion }), /requires A\/B/);
+  assert.equal(room.healthy(1400), false);
+});
 test('server shares a centered standing area even when a client has old offsets', () => {
   const room = new Room();
   room.join('a', { ...config, zone: { width: 2, depth: 3, x: 0.5, z: 0.8, yaw: 0 } });

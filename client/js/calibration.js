@@ -32,7 +32,8 @@ export function solveAlignment(a, b, targetA, targetB) {
 
 export class Calibration {
   constructor(space, options = {}) { this.reset(space, options); }
-  reset(space, { defining = false, targets = null, alignment = null } = {}) {
+  reset(space, { defining = false, targets = null, alignment = null, solo = false } = {}) {
+    this.solo = solo;
     this.defining = defining;
     this.targets = targets;
     this.stage = 0;
@@ -75,6 +76,7 @@ export class Calibration {
   }
   get complete() { return this.stage === 2; }
   get instruction() {
+    if (this.solo) return this.complete ? 'Solo court ready. RIGHT grip: start or pause. Opposite-hand trigger: new ball. B: recenter.' : 'Solo practice. Enter VR at your room center; no A/B calibration needed.';
     if (this.error) return this.error;
     if (this.collecting) return 'Hold the RIGHT controller still…';
     if (this.complete) return 'Aligned. Check your partner’s real head and hands, then RIGHT grip to mark ready. Tap B to repeat A/B; hold B to recenter (P1).';

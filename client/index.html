@@ -20,21 +20,23 @@
       <h1 id="page-title">Bring the court<br>closer to home.</h1>
       <p class="intro">A regulation court, with room for your reality.<br>Choose your location and adjust its clear space.</p>
       <section class="sandbox-panel" aria-labelledby="sandbox-title">
-        <div class="section-heading"><h2 id="sandbox-title">Play together</h2><span>2 PLAYERS · LAN</span></div>
-        <p class="field-help">First player to join shares their selected space. Join here before entering VR on each headset. Leave to edit location settings.</p>
+        <div class="section-heading"><h2 id="sandbox-title">Play the sandbox</h2><span>1–2 PLAYERS · LAN</span></div>
+        <label>Play mode<select id="play-mode"><option value="shared">Two players</option><option value="solo">Solo practice</option></select></label>
+        <p id="join-help" class="field-help">First player to join shares their selected space. Join here before entering VR on each headset. Leave to edit location settings.</p>
         <button id="join-room" class="primary" type="button">Join shared sandbox</button>
         <p id="sandbox-status" class="field-help" role="status">One shared ball. No scores or assigned turns.</p>
         <label class="sound-toggle"><input id="calibration-passthrough" type="checkbox" checked> See the physical room during setup and pauses</label>
         <button id="enter-vr" class="primary" disabled>Checking headset… <span>↗</span></button>
         <p id="xr-status" class="xr-status" role="status">Checking secure WebXR availability.</p>
-        <details class="alignment-guide" open>
+        <p id="solo-guide" class="field-help" hidden>Solo practice: enter VR from the center of your clear space, facing forward. No A/B calibration needed. Press right grip to start, then left trigger to drop a ball. Tap or hold B to recenter the court.</p>
+        <details id="shared-alignment-guide" class="alignment-guide" open>
           <summary>Choose two shared physical spots</summary>
           <p class="field-help">Player 1 enters VR at the center of the clear space, facing the intended front wall. That entry position stays the play area center, including when retrying calibration. Choose spot A on the floor or furniture: rest your right controller against it and press trigger. Repeat at a distinct spot B to the side. The spots can be at different heights; no measuring is required.</p>
           <p class="field-help">Tell your partner which spots are A and B. They touch those same physical spots in order with their right controller, matching its placement and direction. Hold still briefly after each press. Suggested floating markers start around 3 feet high; they move to your chosen spots. Your partner’s labels are approximate until alignment is finished.</p>
           <p class="field-help">Passthrough shows the real room during setup when available. Keep objects fixed until both players finish. After alignment, the mint floor outline shows the play area and the cross marks its center, including while paused. Check each other’s hands before both press right grip to begin. Player proximity alerts are currently off.</p>
           <p class="field-help">Stay in VR: tap B to repeat your A/B alignment using only the right controller. Player 1 can stand at the new center facing forward and hold B for one second to move the room for both players. The standard Meta/Oculus recenter also works when the browser reports it; if it cannot preserve alignment, follow A/B again inside VR. Temporary controller tracking loss does not pause play.</p>
-          <p id="alignment-status" class="field-help" role="status">Join the sandbox, then enter VR to align.</p>
         </details>
+        <p id="alignment-status" class="field-help" role="status">Join the sandbox, then enter VR to align.</p>
         <div class="fields"><button id="ready-player" class="secondary" type="button" disabled>Mark ready / resume</button><button id="restart-alignment" class="secondary" type="button" disabled>Restart alignment</button></div>
         <div class="fields sandbox-options">
           <label>Racquet hand<select id="racquet-hand"><option value="right">Right hand</option><option value="left">Left hand</option></select></label>

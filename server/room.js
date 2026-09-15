@@ -19,6 +19,7 @@ export class Room {
     this.broadcast = broadcast;
     this.players = new Map();
     this.config = null;
+    this.mode = 'shared';
     this.rev = 0;
     this.ball = null;
     this.ballId = 0;
@@ -29,20 +30,23 @@ export class Room {
     this.eventId = 0;
     this.anchors = null; this.anchorOwner = null; this.anchorVersion = 0;
   }
-  join(connection, config, hand = 'right') {
+  join(connection, config, hand = 'right', mode = 'shared') {
     if (this.players.has(connection)) return this.players.get(connection).id;
+    if (!['solo', 'shared'].includes(mode)) throw new Error('Choose Solo practice or Two players.');
+    if (this.players.size && (this.mode === 'solo' || mode !== this.mode)) throw new Error('A different session is active. Leave that session before switching between solo and two players.');
     if (this.players.size >= 2) throw new Error('Two players are already connected.');
     if (!this.players.size) {
       const zone = centerStandingZone(config?.zone);
       if (!config || validateSpace(config.space) || validateStandingZone(zone, config.space)) throw new Error('Select a valid physical space before joining.');
       this.config = copy({ space: config.space, zone, label: String(config.label || 'Shared space').slice(0, 40) });
+      this.mode = mode;
       this.rev++;
       this.ball = null;
     }
     const id = this.players.size && [...this.players.values()][0].id === 1 ? 2 : 1;
     if (!this.players.size) { this.anchorOwner = id; this.clearAnchors(); }
     this.players.set(connection, { id, hand: hand === 'left' ? 'left' : 'right', ready: false, calibrated: false, tracked: false, pose: null, previousPose: null, lastPoseAt: 0, previousPoseAt: 0, seq: -1, lastHitAt: -Infinity });
-    this.pause('A player joined. Check alignment and both mark ready.');
+    this.pause(this.mode === 'solo' ? 'Solo practice. Enter VR, then press RIGHT grip to start.' : 'A player joined. Check alignment and both mark ready.');
     return id;
   }
   leave(connection) {
@@ -63,23 +67,28 @@ export class Room {
     for (const player of this.players.values()) { player.calibrated = false; player.tracked = false; player.pose = null; player.previousPose = null; player.ready = false; }
   }
   healthy(now) {
-    return this.players.size === 2 && [...this.players.values()].every(p => p.calibrated && p.pose && now - p.lastPoseAt <= TRACKING_TIMEOUT);
+    return this.players.size === (this.mode === 'solo' ? 1 : 2) && [...this.players.values()].every(p => p.calibrated && p.pose && now - p.lastPoseAt <= TRACKING_TIMEOUT);
   }
   handle(connection, message, now = Date.now()) {
     const player = this.players.get(connection);
     if (!player) throw new Error('Join the sandbox first.');
-    if (message.type === 'pause') { this.pause('Paused by a player. Both mark ready to resume.'); return; }
+    if (message.type === 'pause') { this.pause(this.mode === 'solo' ? 'Paused. RIGHT grip to resume practice.' : 'Paused by a player. Both mark ready to resume.'); return; }
     if (message.type === 'reset') { this.ball = null; return; }
     if (message.type === 'invalidate') {
       if (player.id === this.anchorOwner && message.clearAnchors !== false) this.clearAnchors();
       player.calibrated = false; player.tracked = false; player.pose = null; player.previousPose = null;
-      this.pause('Alignment or tracking changed. Recalibrate before resuming.'); return;
+      this.pause(this.mode === 'solo' ? 'Setting up your court. RIGHT grip to start when ready.' : 'Alignment or tracking changed. Recalibrate before resuming.'); return;
     }
     if (message.type === 'lost') {
       player.tracked = false; player.pose = null; player.previousPose = null;
-      this.pause('Tracking unavailable. Both mark ready when tracking returns.'); return;
+      this.pause(this.mode === 'solo' ? 'Session interrupted. RIGHT grip to resume when back in VR.' : 'Tracking unavailable. Both mark ready when tracking returns.'); return;
     }
     if (message.rev !== this.rev) throw new Error('Room configuration changed. Rejoin and recalibrate.');
+    if (message.type === 'soloAligned') {
+      if (this.mode !== 'solo') throw new Error('Shared play requires A/B alignment.');
+      if (message.anchorVersion !== this.anchorVersion) throw new Error('Court changed. Retry setup.');
+      player.calibrated = true; player.ready = false; return;
+    }
     if (message.type === 'recenter') {
       if (player.id !== this.anchorOwner) throw new Error('Player 1 controls the room center.');
       if (message.anchorVersion !== this.anchorVersion) throw new Error('Room alignment changed. Retry recenter.');
@@ -123,9 +132,9 @@ export class Room {
       return;
     }
     if (message.type === 'ready') {
-      if (!this.healthy(now)) throw new Error('Both players must be aligned and connected to mark ready.');
+      if (!this.healthy(now)) throw new Error(this.mode === 'solo' ? 'Enter VR and wait for the court to be ready.' : 'Both players must be aligned and connected to mark ready.');
       player.ready = true;
-      if ([...this.players.values()].every(p => p.ready)) { this.paused = false; this.reason = 'Free play · either player can spawn or hit.'; }
+      if ([...this.players.values()].every(p => p.ready)) { this.paused = false; this.reason = this.mode === 'solo' ? 'Solo practice.' : 'Free play · either player can spawn or hit.'; }
       return;
     }
     if (message.type === 'speed') {
@@ -134,9 +143,9 @@ export class Room {
     }
     if (message.type === 'hand') {
       if (!['left', 'right'].includes(message.value)) throw new Error('Invalid racquet hand.');
-      player.hand = message.value; this.pause('Hand assignment changed. Both mark ready.'); return;
+      player.hand = message.value; this.pause(this.mode === 'solo' ? 'Hand assignment changed. RIGHT grip to resume.' : 'Hand assignment changed. Both mark ready.'); return;
     }
-    if (this.paused || !this.healthy(now)) throw new Error('Ball is paused. Both players must be aligned, tracked, and ready.');
+    if (this.paused || !this.healthy(now)) throw new Error(this.mode === 'solo' ? 'Ball is paused. RIGHT grip to start practice.' : 'Ball is paused. Both players must be aligned, tracked, and ready.');
     if (message.type === 'spawn') {
       if (message.anchorVersion !== this.anchorVersion) return;
       const hand = player.hand === 'right' ? 'left' : 'right';
@@ -173,16 +182,17 @@ export class Room {
     for (const player of this.players.values()) {
       if (player.tracked && now - player.lastPoseAt > TRACKING_TIMEOUT) {
         player.tracked = false;
-        this.pause('Tracking data unavailable. Both mark ready after tracking recovers.');
+        this.pause(this.mode === 'solo' ? 'Session updates stopped. RIGHT grip to resume when connected.' : 'Tracking data unavailable. Both mark ready after tracking recovers.');
       }
     }
-    if (!this.paused && !this.healthy(now)) this.pause('Waiting for both players and fresh tracking.');
+    if (!this.paused && !this.healthy(now)) this.pause(this.mode === 'solo' ? 'Waiting for your VR session. RIGHT grip to resume.' : 'Waiting for both players and fresh tracking.');
     if (!this.paused) for (let step = 0; step < steps; step++) {
       stepBall(this.ball, STEP, this.speed, (kind, p, strength) => this.broadcast({ type: 'impact', id: ++this.eventId, kind, p: [...p], strength }));
       this.tick++;
     }
   }
   snapshot(now = Date.now()) {
-    return { type: 'state', now, rev: this.rev, config: this.config, anchors: this.anchors, anchorOwner: this.anchorOwner, anchorVersion: this.anchorVersion, tick: this.tick, speed: this.speed, paused: this.paused, reason: this.reason, ball: this.ball, players: [...this.players.values()].map(({ id, hand, ready, calibrated, tracked, pose, lastPoseAt }) => ({ id, hand, ready, calibrated, tracked, pose, age: now - lastPoseAt })) };
+    // Mode is authoritative; solo cannot silently admit a second headset.
+    return { type: 'state', mode: this.mode, now, rev: this.rev, config: this.config, anchors: this.anchors, anchorOwner: this.anchorOwner, anchorVersion: this.anchorVersion, tick: this.tick, speed: this.speed, paused: this.paused, reason: this.reason, ball: this.ball, players: [...this.players.values()].map(({ id, hand, ready, calibrated, tracked, pose, lastPoseAt }) => ({ id, hand, ready, calibrated, tracked, pose, age: now - lastPoseAt })) };
   }
 }
