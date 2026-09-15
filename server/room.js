@@ -1,5 +1,5 @@
 import { validateSpace, validateStandingZone, centerStandingZone } from '../client/js/spaces.js';
-import { BALL_RADIUS, STEP, stepBall, racquetPose, hitVelocity } from '../client/js/physics.js';
+import { BALL_RADIUS, STEP, stepBall, racquetPose, hitVelocity, MAX_BALL_SPEED, MAX_RACQUET_SPEED, HIT_COOLDOWN_MS } from '../client/js/physics.js';
 import { distance, dot, transformPoint, transformQuaternion } from '../client/js/math.js';
 import { validateAnchors } from '../client/js/calibration.js';
 
@@ -23,7 +23,9 @@ export class Room {
     this.rev = 0;
     this.ball = null;
     this.ballId = 0;
-    this.speed = 8;
+    this.speed = MAX_BALL_SPEED;
+    this.flightHistory = Array.from({ length: 64 }, () => ({ p: [0, 0, 0], v: [0, 0, 0], duration: 0, at: -Infinity }));
+    this.flightIndex = 0;
     this.paused = true;
     this.reason = 'Join the sandbox and align both headsets.';
     this.tick = 0;
@@ -138,7 +140,7 @@ export class Room {
       return;
     }
     if (message.type === 'speed') {
-      if (!Number.isFinite(message.value) || message.value < 2 || message.value > 16) throw new Error('Ball speed must be 2–16 m/s.');
+      if (!Number.isFinite(message.value) || message.value < 2 || message.value > MAX_BALL_SPEED) throw new Error(`Ball speed must be 2–${MAX_BALL_SPEED} m/s.`);
       this.speed = message.value; return;
     }
     if (message.type === 'hand') {
@@ -160,23 +162,47 @@ export class Room {
       if (message.anchorVersion !== this.anchorVersion || !player.pose[player.hand]) return;
       const ball = this.ball;
       if (!ball || message.ballId !== ball.id || message.ballRevision !== ball.revision) return;
-      if (now - player.lastHitAt < 120 || !vector(message.contact, 3, 100)) return;
+      if (now - player.lastHitAt < HIT_COOLDOWN_MS || !vector(message.contact, 3, 100)) return;
       if (typeof message.eventId !== 'string' || message.eventId.length > 80) return;
-      // Bound lag compensation: contact must be near the current ball and a recent racquet.
-      if (distance(message.contact, ball.p) > 0.15 + this.speed * 0.12) return;
+      if (!vector(message.normal, 3, 1.01) || Math.abs(Math.hypot(...message.normal) - 1) > 0.01) return;
+      // Validate against actual flight segments (including bounces), rather
+      // than a speed-dependent sphere that would grow to ten meters at 85 m/s.
+      const incoming = this.incomingAt(message.contact, now);
+      if (!incoming) return;
       const current = racquetPose(paddle(), player.pose[player.hand]);
-      if (distance(message.contact, current.center) > 0.42) return;
+      if (Math.abs(dot(message.normal, current.normal)) < 0.8) return;
       const old = player.previousPose?.[player.hand] ? racquetPose(paddle(), player.previousPose[player.hand]) : current;
+      const movement = current.center.map((n, i) => n - old.center[i]);
+      const lengthSquared = dot(movement, movement);
+      const fraction = lengthSquared > 1e-9 ? Math.max(0, Math.min(1, dot(message.contact.map((n, i) => n - old.center[i]), movement) / lengthSquared)) : 1;
+      if (distance(message.contact, old.center.map((n, i) => n + movement[i] * fraction)) > 0.3) return;
       const dt = (player.lastPoseAt - player.previousPoseAt) / 1000;
       const velocity = current.center.map((n, i) => dt > 0.005 && dt < 0.15 ? (n - old.center[i]) / dt : 0);
       const speed = Math.hypot(...velocity);
-      if (speed > 18) return;
-      const v = hitVelocity(ball.v, current.normal, velocity, this.speed);
-      const direction = dot(v, current.normal) >= 0 ? 1 : -1;
-      ball.p = message.contact.map((n, i) => n + current.normal[i] * direction * (BALL_RADIUS + 0.01));
+      if (speed > MAX_RACQUET_SPEED) return;
+      if (dot(incoming, message.normal) - dot(velocity, message.normal) >= -0.001) return;
+      const v = hitVelocity(incoming, message.normal, velocity, this.speed);
+      ball.p = message.contact.map((n, i) => n + message.normal[i] * 0.0001);
       ball.v = v; ball.revision++; player.lastHitAt = now;
       this.broadcast({ type: 'impact', id: `hit:${player.id}:${message.eventId}`, kind: 'racquet', p: [...message.contact], strength: Math.hypot(...v), by: player.id, eventId: message.eventId });
     }
+  }
+  incomingAt(contact, now) {
+    const ball = this.ball;
+    let best = 0.12 ** 2, incoming = null;
+    const check = (p, v, duration) => {
+      const dx = contact[0] - p[0], dy = contact[1] - p[1], dz = contact[2] - p[2];
+      const vv = dot(v, v);
+      const t = vv > 1e-9 ? Math.max(0, Math.min(duration, (dx * v[0] + dy * v[1] + dz * v[2]) / vv)) : 0;
+      const d2 = (dx - v[0] * t) ** 2 + (dy - v[1] * t) ** 2 + (dz - v[2] * t) ** 2;
+      if (d2 < best) { best = d2; incoming = [...v]; }
+    };
+    check(ball.p, ball.v, 0);
+    for (const segment of this.flightHistory) if (segment.id === ball.id && segment.revision === ball.revision && now - segment.at <= 120) check(segment.p, segment.v, segment.duration);
+    // The predicting client can also be a few frames ahead of the server.
+    const predicted = { p: [...ball.p], v: [...ball.v] };
+    for (let i = 0; i < 15; i++) stepBall(predicted, STEP, this.speed, undefined, undefined, check);
+    return incoming;
   }
   update(now = Date.now(), steps = 2) {
     for (const player of this.players.values()) {
@@ -187,7 +213,12 @@ export class Room {
     }
     if (!this.paused && !this.healthy(now)) this.pause(this.mode === 'solo' ? 'Waiting for your VR session. RIGHT grip to resume.' : 'Waiting for both players and fresh tracking.');
     if (!this.paused) for (let step = 0; step < steps; step++) {
-      stepBall(this.ball, STEP, this.speed, (kind, p, strength) => this.broadcast({ type: 'impact', id: ++this.eventId, kind, p: [...p], strength }));
+      stepBall(this.ball, STEP, this.speed, (kind, p, strength) => this.broadcast({ type: 'impact', id: ++this.eventId, kind, p: [...p], strength }), undefined, (p, v, duration) => {
+        const segment = this.flightHistory[this.flightIndex++ % this.flightHistory.length];
+        for (let i = 0; i < 3; i++) { segment.p[i] = p[i]; segment.v[i] = v[i]; }
+        segment.id = this.ball.id; segment.revision = this.ball.revision;
+        segment.duration = duration; segment.at = now - (steps - step - 1) * STEP * 1000;
+      });
       this.tick++;
     }
   }

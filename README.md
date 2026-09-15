@@ -54,11 +54,11 @@ Passthrough uses a floor-based `immersive-ar` session when the browser supports 
 | Opposite-hand trigger during active play | Replace the single ball at that hand |
 | Right grip **or A** | Mark ready when paused; pause when playing |
 | Left grip **or Y** | Clear the ball |
-| **X** | Cycle maximum ball speed through 4, 8, and 12 m/s |
+| **X** | Cycle maximum ball speed through 8, 20, 40, and 85 m/s |
 | Tap **B** | Retry your A/B alignment inside VR; pauses the ball, keeps your partner's alignment |
 | Hold **B** for 1 second (Player 1) | Recenter the shared room at your current position/facing; preserves both alignments and clears the ball |
 | Hold Meta/Oculus button | System recenter; see behavior below |
-| Browser Ball speed slider | Set shared maximum speed from 2–16 m/s |
+| Browser Maximum ball speed slider | Set shared speed ceiling from 2–85 m/s; default 85 |
 | Browser Racquet hand | Switch racquet/spawn hands; pauses until both mark ready |
 | Browser Positional sound | Mute/unmute locally |
 | Browser Player proximity | Disabled during physics/playability testing |
@@ -103,11 +103,27 @@ The physical footprint and court are centered together; the scene uses meters, +
 ## Physics, audio, and performance
 
 - The server owns canonical ball state, accepted hit ordering, and spawn IDs. Either player can request a replacement; simultaneous requests resolve to one newest ball. Old ball IDs/revisions cannot apply stale hits.
-- Each client predicts a new ball and local racquet contact immediately, then reconciles with server state. Hit requests are checked against current ball/racquet proximity, recent tracked motion, speed limits, cooldown, and ball revision. Latency compensation is bounded to 120 ms; it is prototype plausibility checking, not competitive anti-cheat.
-- Shared physics runs at 120 Hz with swept time-of-impact against six court planes, gravity, inelastic bounces, and a maximum-speed setting. Racquet contacts use a relative ball/moving-disk sweep; fast rotations are approximated by frame samples. This is a lightweight model, without string deformation, spin, or full continuous rotational collision solving.
+- Each client predicts a new ball and local racquet contact immediately, then reconciles with server state. Hit requests are checked against recent ball flight segments, swept racquet position, face direction, approaching relative velocity, tracked swing speed, cooldown, and ball revision. A bounded 64-segment history and 125 ms forward prediction follow wall bounces; a 120 ms history window recovers incoming velocity when the server has already advanced past a hit. Contact must be within 12 cm of a tested flight segment; the tolerance does not grow with the speed cap. This is prototype plausibility checking, not competitive anti-cheat.
+- Server physics runs at 120 Hz. Client prediction subdivides each XR frame into steps no longer than 1/120 second and resolves racquet contact before the next wall bounce. This avoids using a misleading straight line across a frame containing multiple bounces. Hit cooldown is 50 ms and tracking jumps above 60 m/s racquet-center speed are rejected. Fast rotations remain approximated by interpolated disk normals and center velocity.
 - Head/controller poses are sampled every XR frame and sent at a capped rate of 45/s; the server publishes state around 30/s. Application queues are bounded and superseded outgoing poses are skipped. Tracking expires after 300 ms. Server stalls pause play rather than simulating a large catch-up interval.
 - Distinct **original synthesized** floor, wall, and racquet impacts are cached in one AudioContext. Twelve reusable HRTF PannerNode/GainNode voices provide distance attenuation. The listener follows calibrated headset position and orientation. Predicted racquet sound is deduplicated against its server confirmation. These sounds are not recordings; realistic recorded clips remain a future refinement.
 - Boundary dashes use two instanced draw calls. Pose vectors, scene meshes, and prediction scratch state are reused; network serialization, collision events, audio source creation, calibration, and UI updates still allocate. The renderer keeps the existing foveation, capped pixel ratio, static lighting, and no dynamic shadows/postprocessing.
+
+### Physics tuning
+
+| Parameter | Value |
+|---|---|
+| Ball mass / diameter | 0.040 kg / 0.057 m |
+| Floor, walls, ceiling restitution | 0.84 |
+| Racquet effective impact mass | 0.170 kg |
+| Racquet-ball restitution | 0.72 |
+| Maximum ball speed | 85 m/s by default; lower practice caps available |
+
+The ball dimensions/mass and the 68–72-inch rebound from a 100-inch drop follow [USA Racquetball's ball specification, rule 2.2](https://assets.contentstack.io/v3/assets/blteb7d012fc7ebef7f/blt3872fce6b9efc1a5/68ae385c981e96747729f351/USAR_Rulebook_%28New_Rule_C.4%29.pdf). A restitution of 0.84 gives an ideal height ratio of 0.7056; the simulated drop test also passes that range. Applying this value to every surface/speed is a modeling approximation, not an official wall coefficient.
+
+Racquet contact uses the normal impulse `J = -(1 + e) * relativeNormalVelocity / (1 / ballMass + 1 / racquetMass)`. Separating contacts receive no impulse; tangential ball velocity is preserved. The finite-mass model accounts for recoil during the impulse, but the rendered racquet remains attached to the tracked hand. Its effective mass and restitution are tuning assumptions: a held racquet also depends on grip, arm, inertia, and impact location. For example, a 10 m/s ball hitting a stationary racquet rebounds at about 3.92 m/s in this model; a racquet moving normally at 10 m/s sends a stationary ball away at about 13.92 m/s.
+
+The speed ceiling never accelerates a gentle shot. There is no artificial swing multiplier or minimum outgoing speed. Air drag, spin, string deformation, and off-center rotational recoil are not modeled yet. The new values are a physically motivated baseline to assess on the headset, not a claim of measured professional-shot accuracy.
 
 ## Architecture
 

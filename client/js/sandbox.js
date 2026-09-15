@@ -3,7 +3,7 @@ import { Network } from './network.js';
 import { Calibration, centerAlignment } from './calibration.js';
 import { Avatar, createRacquet, HeadsetHUD, CalibrationMarkers } from './models.js';
 import { SpatialAudio } from './audio.js';
-import { BALL_RADIUS, STEP, racquetPose, sweepRacquet, hitVelocity, stepBall } from './physics.js';
+import { BALL_RADIUS, STEP, racquetPose, predictBall, createRacquetSweep, MAX_BALL_SPEED, SPEED_PRESETS, HIT_COOLDOWN_MS } from './physics.js';
 import { FEET, PLAYER_PROXIMITY_ENABLED } from './config.js';
 import { distance, rotateVector, transformPoint, transformQuaternion, composeAlignment } from './math.js';
 
@@ -26,9 +26,22 @@ export class Sandbox {
     this.raw = pose(); this.world = pose(); this.sources = {}; this.buttons = { left: [], right: [] };
     this.tracked = { head: false, left: false, right: false };
     this.packet = { head: null, left: null, right: null };
-    this.currentPaddle = paddle(); this.previousPaddle = paddle(); this.ballPrevious = [0, 0, 0];
-    this.forward = [0, 0, -1]; this.up = [0, 1, 0]; this.paddleVelocity = [0, 0, 0];
-    this.lastFrame = 0; this.lastSend = 0; this.lastHit = 0; this.hitId = 0; this.accumulator = 0; this.poseValid = false;
+    this.currentPaddle = paddle(); this.previousPaddle = paddle();
+    this.racquetSweep = createRacquetSweep((contact, normal, incoming, outgoing) => {
+      const eventId = String(++this.hitId), now = this.hitTime;
+      // Send the current grip pose before the hit, rather than using a stale
+      // 45 Hz pose to validate a fast swing on the server.
+      if (now - this.lastSend > 5) {
+        this.network.send({ type: 'pose', anchorVersion: this.anchorVersion, seq: ++this.network.sequence, pose: this.packet });
+        this.lastSend = now;
+      }
+      this.network.send({ type: 'hit', anchorVersion: this.anchorVersion, ballId: this.ball.id, ballRevision: this.ball.revision, contact, normal, eventId });
+      this.pendingHit = { ballId: this.ball.id, revision: this.ball.revision, at: now };
+      this.lastHit = now; this.predictedSoundId = eventId;
+      this.audio.play('racquet', contact, Math.hypot(...outgoing)); this.haptic(now, 0.25);
+    });
+    this.forward = [0, 0, -1]; this.up = [0, 1, 0];
+    this.lastFrame = 0; this.lastSend = 0; this.lastHit = 0; this.hitId = 0; this.poseValid = false;
     this.lastHUD = 0; this.lastHaptic = 0; this.ball = null; this.pendingHit = null; this.localPaused = true; this.hand = 'right';
     this.remote = new Avatar(scene);
     this.localHands = { left: new THREE.Group(), right: new THREE.Group() };
@@ -129,7 +142,7 @@ export class Sandbox {
       } else if (!state.ball) { this.ball = null; this.pendingHit = null; }
       else if (!this.pendingHit || state.ball.id !== this.pendingHit.ballId || state.ball.revision > this.pendingHit.revision || performance.now() - this.pendingHit.at > 120 || state.paused) {
         this.ball = { ...state.ball, p: [...state.ball.p], v: [...state.ball.v] };
-        this.pendingHit = null; this.pendingSpawn = null; this.accumulator = 0;
+        this.pendingHit = null; this.pendingSpawn = null;
       }
       document.querySelector('#ball-speed').value = state.speed;
       document.querySelector('#speed-label').textContent = `${state.speed} m/s maximum`;
@@ -316,8 +329,8 @@ export class Sandbox {
           } else if (hand === 'right' && (i === 1 || i === 4)) this.readyOrPause();
           else if (hand === 'left' && (i === 1 || i === 5)) this.network.send({ type: 'reset' });
           else if (hand === 'left' && i === 4) {
-            const current = this.network.state?.speed || 8;
-            this.network.send({ type: 'speed', value: current < 4 ? 4 : current < 8 ? 8 : current < 12 ? 12 : 4 });
+            const current = this.network.state?.speed || MAX_BALL_SPEED;
+            this.network.send({ type: 'speed', value: SPEED_PRESETS.find(speed => speed > current) || SPEED_PRESETS[0] });
           } else if (hand !== this.hand && i === 0 && this.tracked[hand] && !this.localPaused && this.network.fresh) {
             // Replace immediately with one provisional ball, then reconcile its ID.
             transformPoint(this.world[hand].p, this.raw[hand].p, this.calibration.alignment);
@@ -404,23 +417,9 @@ export class Sandbox {
     if (!this.network.fresh) this.localPaused = true;
     racquetPose(this.currentPaddle, this.world[this.hand]);
     if (this.ball && active) {
-      for (let i = 0; i < 3; i++) this.ballPrevious[i] = this.ball.p[i];
-      this.accumulator = Math.min(this.accumulator + dt, 0.05);
-      while (this.accumulator >= STEP) { stepBall(this.ball, STEP, state.speed); this.accumulator -= STEP; }
-      if (this.tracked[this.hand] && this.tracked.head && this.ball.id > 0 && this.hasPaddle && now - this.lastHit > 140 && !this.pendingHit) {
-        const contact = sweepRacquet(this.ballPrevious, this.ball.p, this.previousPaddle, this.currentPaddle);
-        if (contact) {
-          for (let i = 0; i < 3; i++) this.paddleVelocity[i] = (this.currentPaddle.center[i] - this.previousPaddle.center[i]) / dt;
-          if (Math.hypot(...this.paddleVelocity) < 18) {
-            const eventId = String(++this.hitId);
-            this.network.send({ type: 'hit', anchorVersion: this.anchorVersion, ballId: this.ball.id, ballRevision: this.ball.revision, contact, eventId });
-            this.pendingHit = { ballId: this.ball.id, revision: this.ball.revision, at: now };
-            this.ball.v = hitVelocity(this.ball.v, this.currentPaddle.normal, this.paddleVelocity, state.speed);
-            this.ball.p = contact; this.lastHit = now; this.predictedSoundId = eventId;
-            this.audio.play('racquet', contact, Math.hypot(...this.ball.v)); this.haptic(now, 0.25);
-          }
-        }
-      }
+      const canHit = this.tracked[this.hand] && this.tracked.head && this.ball.id > 0 && this.hasPaddle && now - this.lastHit > HIT_COOLDOWN_MS && !this.pendingHit;
+      this.hitTime = now;
+      predictBall(this.ball, dt, state.speed, this.previousPaddle, this.currentPaddle, canHit ? this.racquetSweep : null);
     }
     for (let i = 0; i < 3; i++) { this.previousPaddle.center[i] = this.currentPaddle.center[i]; this.previousPaddle.normal[i] = this.currentPaddle.normal[i]; }
     this.hasPaddle = Boolean(active && this.tracked[this.hand] && this.tracked.head);

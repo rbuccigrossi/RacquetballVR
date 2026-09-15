@@ -185,13 +185,32 @@ test('server accepts plausible hits once and rejects old ball IDs/revisions', ()
   const { room, send, events } = prepared();
   send('a', { type: 'spawn' });
   room.ball.p = [-0.7, 1.2, -0.27]; room.ball.v = [-3, 0, 0];
-  const hit = { type: 'hit', ballId: room.ball.id, ballRevision: 0, contact: [...room.ball.p], eventId: 'one' };
+  const hit = { type: 'hit', ballId: room.ball.id, ballRevision: 0, contact: [...room.ball.p], normal: [1, 0, 0], eventId: 'one' };
   send('a', hit);
   assert.equal(room.ball.revision, 1); assert.ok(room.ball.v[0] > 0);
   send('b', hit); assert.equal(room.ball.revision, 1);
   assert.equal(events.filter(e => e.kind === 'racquet').length, 1);
   send('b', { type: 'spawn' }); const replacement = structuredClone(room.ball);
   send('a', hit, 1200); assert.deepEqual(room.ball, replacement);
+});
+
+test('fast delayed hit uses incoming flight history even after the server ball bounces off a wall', () => {
+  const { room, send } = prepared();
+  assert.equal(room.speed, 85);
+  send('a', { type: 'spawn' });
+  room.ball.p = [-0.6, 1.2, -0.27]; room.ball.v = [-85, 0, 0];
+  room.update(1034, 4);
+  assert.ok(room.ball.v[0] > 0, 'server has already reached the wall');
+  const contact = [-0.7, 1.2 - 9.81 / 120 * (0.1 / 85), -0.27];
+  const hit = { type: 'hit', ballId: room.ball.id, ballRevision: 0, contact, normal: [1, 0, 0], eventId: 'fast' };
+  send('a', { ...hit, contact: [-0.7, 1.4, -0.27] }, 1034);
+  assert.equal(room.ball.revision, 0, 'near the racquet but off the actual ball path');
+  send('a', hit, 1034);
+  assert.equal(room.ball.revision, 1);
+  assert.ok(room.ball.v[0] > 33 && room.ball.v[0] < 34, 'impulse uses -85 m/s incoming, not the already reflected velocity');
+  send('a', { type: 'speed', value: 20 }, 1034); room.update(1035, 1);
+  assert.ok(Math.hypot(...room.ball.v) <= 20);
+  assert.throws(() => send('a', { type: 'speed', value: 86 }), /2–85/);
 });
 
 test('stale tracking, loss, recenter and disconnect pause play and clear readiness', () => {
@@ -212,7 +231,7 @@ test('stale tracking, loss, recenter and disconnect pause play and clear readine
 test('room rejects third player, bad payloads and stale configurations', () => {
   const { room, send } = prepared();
   assert.throws(() => room.join('c', config), /Two players/);
-  assert.throws(() => send('a', { type: 'speed', value: Infinity }), /2–16/);
+  assert.throws(() => send('a', { type: 'speed', value: Infinity }), /2–85/);
   assert.throws(() => send('a', { type: 'pose', seq: 2, pose: {} }), /Invalid tracking/);
   assert.equal(validPose({ ...makePose(), head: { p: [NaN, 0, 0], q: [0, 0, 0, 1] } }), false);
   assert.throws(() => send('a', { type: 'spawn', rev: -1 }), /configuration changed/);

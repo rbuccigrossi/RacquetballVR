@@ -158,7 +158,7 @@ try {
     await pages[i].evaluate(index => window.sim.position('right', [index ? 1.15 : -0.65, 1.15, 0]), i);
     await pages[i].waitForFunction(() => window.sim.sandbox.network.state.players.every(p => p.calibrated && p.tracked));
   }
-  assert.ok(await pages[0].evaluate(() => window.sim.sandbox.remote.group.visible));
+  await pages[0].waitForFunction(() => window.sim.sandbox.remote.group.visible);
   const accuracy = await pages[0].evaluate(() => Math.abs(window.sim.sandbox.remote.head.position.x - 1.8));
   assert.ok(accuracy < 0.001, `Remote avatar offset ${accuracy}`);
   for (const page of pages) await tap(page, 'right', 1);
@@ -184,7 +184,7 @@ try {
   await pages[1].waitForFunction(() => window.sim.sandbox.network.state.ball?.id === 3 && window.sim.sandbox.network.state.ball.revision > 0);
   assert.ok(await pages[0].evaluate(() => window.sim.sandbox.hitId > 0));
   await tap(pages[1], 'left', 4);
-  await pages[0].waitForFunction(() => window.sim.sandbox.network.state.speed === 12);
+  await pages[0].waitForFunction(() => window.sim.sandbox.network.state.speed === 8);
 
   await pages[0].locator('#racquet-hand').selectOption('left');
   await pages[1].waitForFunction(() => window.sim.sandbox.remote.racquet.parent === window.sim.sandbox.remote.left && window.sim.sandbox.network.state.paused);
