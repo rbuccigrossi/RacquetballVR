@@ -68,7 +68,7 @@ test('HTTPS serves only public local assets and uses a reusable LAN certificate'
   assert.equal((await request('/%ZZ')).status, 400);
 });
 
-function xrHarness({ secure = true, supported = true, failure = false, attachFailure = false, xrMissing = false } = {}) {
+function xrHarness({ secure = true, supported = true, arSupported = false, failure = false, attachFailure = false, xrMissing = false } = {}) {
   let click;
   let ended;
   const calls = [];
@@ -80,7 +80,7 @@ function xrHarness({ secure = true, supported = true, failure = false, attachFai
     options: {
       secure, button, status,
       xr: xrMissing ? undefined : {
-        async isSessionSupported(mode) { assert.equal(mode, 'immersive-vr'); return supported; },
+        async isSessionSupported(mode) { assert.ok(['immersive-vr', 'immersive-ar'].includes(mode)); return mode === 'immersive-ar' ? arSupported : supported; },
         async requestSession(mode, options) {
           calls.push({ mode, options });
           if (failure) throw new Error('Permission denied');
@@ -104,6 +104,17 @@ test('XR explicitly requests immersive-vr + required local-floor and allows reen
   await h.click();
   assert.equal(h.calls.filter(call => call === 'attach').length, 2);
 });
+
+for (const supported of [true, false]) {
+  test(`passthrough capability ${supported ? 'selects floor-based AR' : 'falls back to VR'}`, async () => {
+    const h = xrHarness({ arSupported: supported });
+    h.options.passthrough = { checked: true, disabled: false };
+    await initializeXR(h.options); await h.click();
+    assert.deepEqual(h.calls.find(call => typeof call === 'object'), { mode: supported ? 'immersive-ar' : 'immersive-vr', options: { requiredFeatures: ['local-floor'] } });
+    assert.equal(h.options.passthrough.disabled, !supported);
+    assert.equal(h.options.passthrough.checked, supported);
+  });
+}
 
 for (const [name, options] of [['insecure context', { secure: false }], ['unsupported device', { supported: false }], ['missing WebXR', { xrMissing: true }]]) {
   test(`XR keeps entry disabled for ${name}`, async () => {

@@ -28,7 +28,7 @@ export class Network extends EventTarget {
       if (message.type === 'pose') return false;
       if (this.socket.bufferedAmount > 65536) { this.socket.close(); return false; }
     }
-    this.socket.send(JSON.stringify({ rev: this.state?.rev, ...message }));
+    this.socket.send(JSON.stringify({ rev: this.state?.rev, anchorVersion: this.state?.anchorVersion, ...message }));
     return true;
   }
   leave() { this.socket?.close(); }

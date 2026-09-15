@@ -1,4 +1,6 @@
 import * as THREE from '/vendor/three.module.js';
+import { RACQUET_MOUNT } from './physics.js';
+import { transformPoint } from './math.js';
 
 const material = color => new THREE.MeshBasicMaterial({ color, depthTest: false, toneMapped: false });
 function mesh(parent, geometry, mat, x = 0, y = 0, z = 0) {
@@ -7,6 +9,7 @@ function mesh(parent, geometry, mat, x = 0, y = 0, z = 0) {
 }
 export function createRacquet(color = 0x95eaca, overlay = true) {
   const group = new THREE.Group();
+  group.quaternion.fromArray(RACQUET_MOUNT);
   const frame = new THREE.MeshBasicMaterial({ color, depthTest: !overlay, toneMapped: false });
   const grip = new THREE.MeshBasicMaterial({ color: 0x26393f, depthTest: !overlay });
   mesh(group, new THREE.CylinderGeometry(0.018, 0.022, 0.22, 8), grip, 0, 0.04, 0);
@@ -78,5 +81,40 @@ export class HeadsetHUD {
       line += `${word} `;
     }
     ctx.fillText(line, 30, y); this.texture.needsUpdate = true;
+  }
+}
+
+export class CalibrationMarkers {
+  constructor(scene) {
+    this.point = [0, 0, 0];
+    this.suggestions = [[-0.45, 0.9144, -0.55], [0.45, 0.9144, -0.55]];
+    this.group = new THREE.Group(); this.group.visible = false; scene.add(this.group);
+    this.markers = ['A', 'B'].map(letter => {
+      const group = new THREE.Group();
+      mesh(group, new THREE.SphereGeometry(0.045, 16, 12), material(0xffd275));
+      const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 128;
+      const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
+      const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, toneMapped: false }));
+      label.scale.set(0.5, 0.125, 1); label.position.y = 0.13; label.renderOrder = 90; group.add(label);
+      this.group.add(group); return { group, canvas, texture, letter };
+    });
+  }
+  update(calibration, alignment) {
+    this.group.visible = Boolean(calibration && !calibration.complete);
+    if (!this.group.visible) return;
+    for (let i = 0; i < 2; i++) {
+      const marker = this.markers[i];
+      let p = calibration.defining ? null : calibration.targets?.[i];
+      if (calibration.defining && i < calibration.stage) p = transformPoint(this.point, calibration.points[i], alignment);
+      const mode = p ? (calibration.defining ? 'saved' : 'approximate') : 'suggested';
+      marker.group.visible = calibration.defining || Boolean(p);
+      marker.group.position.fromArray(p || this.suggestions[i]);
+      const text = `${marker.letter} · ${mode}`;
+      if (marker.text !== text) {
+        marker.text = text;
+        const ctx = marker.canvas.getContext('2d'); ctx.clearRect(0, 0, 512, 128); ctx.fillStyle = '#162a23ee'; ctx.fillRect(0, 0, 512, 128);
+        ctx.fillStyle = '#ffe0a2'; ctx.font = 'bold 36px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(text, 256, 78); marker.texture.needsUpdate = true;
+      }
+    }
   }
 }

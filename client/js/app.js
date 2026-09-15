@@ -21,7 +21,7 @@ fetch('/api/health').then(response => {
 }).catch(() => { document.querySelector('#server-status').textContent = 'Server unavailable'; });
 
 try {
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio, RENDER.maxPixelRatio));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -85,6 +85,7 @@ try {
   resize();
   renderer.xr.addEventListener('sessionend', () => { resetView(); resize(); });
   await initializeXR({
+    passthrough: document.querySelector('#calibration-passthrough'),
     xr: navigator.xr, secure: window.isSecureContext, renderer, button: vrButton, status: xrStatus,
     onEnter() { dragging = false; camera.position.set(0, 0, 0); camera.rotation.set(0, 0, 0); camera.updateMatrixWorld(); },
     onExit() { resetView(); resize(); }

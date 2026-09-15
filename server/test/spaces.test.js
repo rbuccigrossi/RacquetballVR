@@ -54,3 +54,12 @@ test('old settings are migrated only if they fit; blocked storage uses defaults'
   assert.deepEqual(loadSpaces({ getItem: key => key === SPACE_STORAGE_KEY ? null : JSON.stringify(validOld) }).profiles.garage.zone, validOld);
   assert.equal(loadSpaces({ getItem() { throw new Error('Blocked'); } }).active, 'garage');
 });
+
+test('saved and legacy offsets are removed while retaining standing dimensions', () => {
+  const state = loadSpaces({ getItem: () => null });
+  state.profiles.garage.zone = { width: 2, depth: 3, x: 0.4, z: 0.6, yaw: 10 };
+  const saved = loadSpaces({ getItem: key => key === SPACE_STORAGE_KEY ? JSON.stringify(state) : null });
+  assert.deepEqual(saved.profiles.garage.zone, { width: 2, depth: 3, x: 0, z: 0, yaw: 10 });
+  const old = loadSpaces({ getItem: key => key === SPACE_STORAGE_KEY ? null : JSON.stringify(state.profiles.garage.zone) });
+  assert.deepEqual(old.profiles.garage.zone, saved.profiles.garage.zone);
+});

@@ -23,21 +23,23 @@ Self-signed RSA/SHA-256 certificates are generated in `server/certs`, reused for
 ## First two-headset session
 
 1. **Choose the physical profile on the first headset before joining.** It becomes the shared room configuration. On the second headset, use the same LAN URL; its local profile does not override the joined room.
-2. **Prepare three floor marks:** facing your intended front wall, A is the rear-left corner of the measured physical footprint. B is exactly **1 meter (3 ft 3.37 in) to the right of A**. C is exactly **1 meter forward of A**. Make a right angle; C is not forward of B.
-3. Use a measured support to place the **center of the right controller grip 10 cm (3.94 in) above each mark**. Both players must use the same repeatable controller reference point. The support must not obscure controller tracking; remove it from the movement area before playing.
-4. Tap **Join shared sandbox**, then **Enter VR**, on each headset. Only two players may join. The first gets Player 1, the second Player 2.
-5. Follow the headset panel: sample A, then B, then C with the **right trigger**. After each press, hold the controller steady for half a second. Both players perform all three samples. B establishes direction; C verifies the transform independently.
-6. **Before swinging, verify each other's head and both hands at several locations across the footprint.** The controller samples must span 1 meter within 5 cm, be within 4 cm vertically, and the third-point error must be at most 8 cm. These are prototype acceptance thresholds, not a guarantee of safe physical alignment. Near-marker agreement does not prove agreement at the far side of the room.
-7. Both press **right grip** to mark ready. The ball remains paused until two calibrated players have fresh headset and both-controller tracking and have both marked ready.
+2. The first player stands **at the center of the clear physical footprint**, facing the intended front wall, when entering. This establishes the court's center and direction; the headset supplies floor height.
+3. Tap **Join shared sandbox**, then **Enter VR**, on each headset. The first joiner chooses the reference spots. Leave **See the physical room during setup and pauses** checked to use passthrough when supported. Identify the physical spots before entering if passthrough is unavailable.
+4. The reference player chooses **A anywhere on the floor or stationary furniture**, rests their right controller against it, and presses the **right trigger**. Hold still briefly while it samples. Repeat at **B**, another distinct spot to the side. Different heights are fine; no fixed distance or height needs measuring. Wider horizontal separation improves direction accuracy. If the points are too close or vertically stacked, the headset asks for a farther spot B.
+5. Tell your partner exactly which physical spots are A and B. Your partner touches those same spots in that order, using the **same part of the right controller and matching its direction**, and presses right trigger at each. The app samples the tracked grip center, so repeatable controller placement matters. Keep the reference objects stationary until both finish. Suggested A/B spheres begin around 3 feet high; the first player's spheres move to the chosen spots. The partner's floating labels are **approximate until aligned**: use the physical objects as the reference.
+6. **Before swinging, verify each other's head and both hands at several locations across the footprint.** The two-point fit rejects endpoint errors above 8 cm and horizontal baselines shorter than 40 cm. These are prototype acceptance thresholds, not a guarantee of physical alignment. The two samples calculate translation and yaw; they are not an independent alignment check. Incorrect spots with similar spacing can still pass. Press B to restart if the real and virtual positions disagree.
+7. Find the **mint floor outline and center cross**, which remain visible over passthrough after alignment and while paused. Both press **right grip** to mark ready. The ball remains paused until two calibrated players have fresh headset and both-controller tracking and have both marked ready. There is no player-distance requirement to start.
 8. Press the **left trigger** to replace any existing ball with a new ball at the left hand. It immediately drops under gravity. Hit it with the right-hand racquet. Either player may spawn or hit, at any time during active play.
 
-Do not hold a physical racquet: the controller has a virtual racquet attached. The rendered racquet and hand share the controller's grip pose.
+Do not hold a physical racquet: the controller has a virtual racquet attached. With the controller held flat pointing forward, the racquet tip points away from you and its front face points left. The visual mesh and collision surface use the same grip-space mount, including on your partner's avatar.
+
+Passthrough uses a floor-based `immersive-ar` session when the browser supports it. Setup, pauses, and tracking loss reveal the physical room; active play renders the court in the same session. Unsupported browsers use `immersive-vr`. Quest 2 passthrough is grayscale. See [Meta's WebXR mixed reality documentation](https://developers.meta.com/horizon/documentation/web/webxr-mixed-reality/).
 
 ## Controls
 
 | Input | Action |
 |---|---|
-| Right trigger during alignment | Sample the next mark |
+| Right trigger during alignment | Choose or match physical spot A, then B |
 | Opposite-hand trigger during active play | Replace the single ball at that hand |
 | Right grip **or A** | Mark ready when paused; pause when playing |
 | Left grip **or Y** | Clear the ball |
@@ -46,7 +48,7 @@ Do not hold a physical racquet: the controller has a virtual racquet attached. T
 | Browser Ball speed slider | Set shared maximum speed from 2–16 m/s |
 | Browser Racquet hand | Switch racquet/spawn hands; pauses until both mark ready |
 | Browser Positional sound | Mute/unmute locally |
-| Browser Nearby warning | Adjust local tracked-point warning distance, default 1.37 m |
+| Browser Player proximity | Disabled during physics/playability testing |
 | Browser Leave sandbox | Free the player slot and clear/pause the shared ball |
 
 Grip/A/X/Y/B commands keep the same physical controller assignments when racquet hands are switched. A ball spawn is a trigger press, not a repeated action while holding the trigger.
@@ -55,10 +57,11 @@ Grip/A/X/Y/B commands keep the same physical controller assignments when racquet
 
 - The opponent has a directionally visible head/visor, both tracked controller hands, and a racquet. A wireframe torso is **an approximation**, not tracked anatomy.
 - Opponent meshes remain visible through court geometry. Poses use the freshest received data; there is no long smoothing delay that would conceal movement. LAN transmission and rendering still introduce latency.
-- Nearby tracked points produce an orange head halo and hand/head color change, a headset message, and brief strong haptics where supported. There is no opaque flashing sphere and no forced division into player lanes.
+- **Player proximity detection is temporarily disabled**: no nearby-player halo, color change, message, or haptics. Head, hands, and racquet tracking remain visible. The implementation is retained behind `PLAYER_PROXIMITY_ENABLED` in `client/js/config.js` for later re-enabling.
 - Calibrated head and controller positions produce warnings near the physical inset, outside the standing outline, or within 20 cm of overhead clearance. These are cues, not collision barriers or full-body/swing tracking.
 - Missing or emulated headset/controller tracking, session visibility loss, stale network data, disconnection, and reference-space resets stop active play. Stale opponent avatars are hidden instead of displayed as current. Readiness is cleared; ordinary tracking recovery requires both players to mark ready again.
-- Reference-space reset/recenter, leaving VR, reconnecting, or changing physical locations requires fresh calibration. Dimensions are saved; calibration is not persisted. A network drop does not intentionally reposition the court while the headset is on.
+- Reference-space reset/recenter requires exiting and entering VR again, then recalibrating; the HUD explains this instead of silently moving the play area. Leaving VR, reconnecting, or changing physical locations also requires fresh calibration. Dimensions are saved; calibration is not persisted. A network drop does not intentionally reposition the court while the headset is on.
+- Restarting the reference player's alignment clears the shared spots and both players' alignment. Restarting the matching player's alignment keeps the reference spots. If the reference player leaves the room, the remaining player becomes the reference player and chooses a fresh pair. Versioned anchor messages prevent old samples/poses from restoring stale alignment.
 - Keep the headset's system boundary enabled. Verify alignment before each session. A software pause cannot stop a physical swing.
 
 ## Locations and court
@@ -74,7 +77,7 @@ Saved editable physical profiles (width × depth × lowest overhead clearance):
 
 Physical measurements remain independent of the **20 × 40 × 20 ft** regulation court. The initial editable edge inset is **1 ft per side**, a planning allowance rather than validated player/swing clearance. The standing rectangle fits inside both the inset physical footprint and the court's existing 10 cm edge clearance. Full physical measurements are retained even when the driveway is wider than the virtual court.
 
-The physical footprint and court are centered together; the scene uses meters, +Y up, and front wall at Z = −6.096. Calibration maps physical mark A to the footprint's rear-left corner. Physical height controls overhead warnings, not the rendered court ceiling. Location controls are locked while joined; leave to edit them. The shared profile remains authoritative until the room empties, so both players should leave before selecting a different location.
+The physical footprint and court are centered together; the scene uses meters, +Y up, and front wall at Z = −6.096. Player 1's first valid headset pose at VR entry establishes the footprint center and forward direction, even before controllers become available. Manual calibration retries preserve that entry center. Choose A/B wherever convenient; their positions do not define the footprint's corners or center. Previously saved standing-area offsets are cleared; width, depth, and rotation remain adjustable. Physical height controls overhead warnings, not the rendered court ceiling. Location controls are locked while joined; leave to edit them. The shared profile remains authoritative until the room empties, so both players should leave before selecting a different location.
 
 **Ball collisions still use the regulation court.** This MVP does not add compact-court physics, return guidance, amplified movement, or teleportation. A return may leave the physically reachable area in smaller spaces; spawn a replacement instead of chasing it outside your clear area. These gameplay adaptations can be evaluated after trying the sandbox.
 
@@ -94,7 +97,7 @@ The physical footprint and court are centered together; the scene uses meters, +
 | `server/server.js`, `certificates.js` | Restricted local HTTPS asset delivery and certificates |
 | `server/multiplayer.js`, `room.js` | WebSocket sessions, two slots, readiness, authoritative state |
 | `client/js/network.js` | Same-origin WSS connection and freshness |
-| `client/js/calibration.js`, `math.js` | Stable samples, yaw/translation transform, third-marker check |
+| `client/js/calibration.js`, `math.js` | Stable two-point samples, yaw/translation transform, pair consistency check |
 | `client/js/sandbox.js` | XR tracking/input, prediction, avatars, warnings, lifecycle |
 | `client/js/physics.js` | Shared ball and racquet physics functions |
 | `client/js/models.js`, `audio.js` | Head/hands/racquet/HUD and spatial sound |
@@ -107,7 +110,7 @@ cd server
 npm test
 ```
 
-Node tests cover HTTPS/certificates, path restrictions, physical profiles, mocked XR entry/exit, independent calibration origins, noisy samples, ball/racquet sweeps, simultaneous spawns, hit revision checks, tracking failure, malformed packets, and two actual WSS clients.
+Node tests cover HTTPS/certificates, path restrictions, physical profiles, mocked VR/passthrough entry and fallback, independent calibration origins, arbitrary anchor heights, noisy samples, anchor invalidation, racquet mounting, ball/racquet sweeps, simultaneous spawns, hit revision checks, tracking failure, malformed packets, and two actual WSS clients.
 
 Optional browser tests require Playwright. Set `PLAYWRIGHT_MODULE` to an installed package path if necessary and `BROWSER_CHANNEL=msedge` to use installed Edge:
 
@@ -116,7 +119,7 @@ node test/browser-smoke.mjs
 node test/browser-sandbox.mjs
 ```
 
-`browser-smoke.mjs` uses the running port-3000 server to verify rendering, local assets, profile controls, and responsive layout; screenshots go in `artifacts/`. `browser-sandbox.mjs` starts a separate ephemeral HTTPS server, runs production client logic with two synthetic XRFrame streams, and verifies controller-driven calibration, avatars, spawning, prediction/server acceptance, hand switching, audio listener/pool, speed, clearing, haptics, tracking recovery, and recenter invalidation. Test browsers accept their development certificates without altering global trust.
+`browser-smoke.mjs` uses the running port-3000 server to verify rendering, local assets, profile controls, and responsive layout; screenshots go in `artifacts/`. `browser-sandbox.mjs` starts a separate ephemeral HTTPS server, runs production client logic with two synthetic XRFrame streams, and verifies entry-center retention with delayed controllers and calibration retries, shared center alignment, passthrough outline visibility, nearby ready/play without proximity cues, avatars, spawning, prediction/server acceptance, hand switching, audio, tracking recovery, and recenter invalidation. Test browsers accept their development certificates without altering global trust.
 
 **Still requires physical Quest testing:** actual alignment across the space, controller/racquet grip orientation, simultaneous headset tracking, perceived network/hit latency, positional sound quality, haptic support, and sustained frame pacing. Begin with stationary avatar checks, then slow controlled hits. Automated synthetic-frame tests do not establish physical colocation accuracy or headset performance.
 

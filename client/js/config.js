@@ -2,7 +2,9 @@ export const FEET = 0.3048;
 // Court center is (0,0,0); floor is Y=0; front wall faces +Z at Z=-length/2.
 export const COURT = Object.freeze({ width: 20 * FEET, length: 40 * FEET, height: 20 * FEET });
 // Standing footprint only. This neither changes the court nor establishes colocation.
-export const DEFAULT_SAFE_ZONE = Object.freeze({ width: 4.8, depth: 4.8, x: 0, z: 0.8, yaw: 0 });
+export const DEFAULT_SAFE_ZONE = Object.freeze({ width: 4.8, depth: 4.8, x: 0, z: 0, yaw: 0 });
+// Temporarily disabled while testing sandbox physics and playability.
+export const PLAYER_PROXIMITY_ENABLED = false;
 export const RENDER = Object.freeze({ maxPixelRatio: 1.5, framebufferScale: 1, foveation: 1 });
 
 export function validateSafeZone(value) {

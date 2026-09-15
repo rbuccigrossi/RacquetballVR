@@ -1,10 +1,10 @@
 import * as THREE from '/vendor/three.module.js';
 import { Network } from './network.js';
-import { Calibration } from './calibration.js';
-import { Avatar, createRacquet, HeadsetHUD } from './models.js';
+import { Calibration, centerAlignment } from './calibration.js';
+import { Avatar, createRacquet, HeadsetHUD, CalibrationMarkers } from './models.js';
 import { SpatialAudio } from './audio.js';
 import { BALL_RADIUS, STEP, racquetPose, sweepRacquet, hitVelocity, stepBall } from './physics.js';
-import { FEET } from './config.js';
+import { FEET, PLAYER_PROXIMITY_ENABLED } from './config.js';
 import { distance, rotateVector, transformPoint, transformQuaternion } from './math.js';
 
 const part = () => ({ p: [0, 0, 0], q: [0, 0, 0, 1] });
@@ -38,6 +38,9 @@ export class Sandbox {
     this.ballMesh = new THREE.Mesh(new THREE.SphereGeometry(BALL_RADIUS, 16, 12), new THREE.MeshStandardMaterial({ color: 0x2386ff, roughness: 0.35, emissive: 0x082e66 }));
     this.ballMesh.visible = false; scene.add(this.ballMesh);
     this.hud = new HeadsetHUD(camera);
+    this.markers = new CalibrationMarkers(scene);
+    this.background = scene.background; this.court = scene.getObjectByName('regulation-court');
+    this.anchorVersion = -1; this.seedAlignment = null; this.pendingAnchors = null;
     this.calibration = null; this.configRev = -1; this.hasPaddle = false;
     this.bindUI(); this.bindNetwork();
     renderer.xr.addEventListener('sessionstart', () => this.startSession());
@@ -82,8 +85,18 @@ export class Sandbox {
         this.configRev = state.rev;
         this.safeZone.update(state.config.zone);
         document.querySelector('#zone-size').textContent = `${state.config.zone.width.toFixed(2)} × ${state.config.zone.depth.toFixed(2)} m`;
-        this.calibration = new Calibration(state.config.space);
-        this.rig.position.set(0, 0, 0); this.rig.rotation.set(0, 0, 0); this.hasPaddle = false;
+        this.hasPaddle = false;
+      }
+      if (state.config && (state.anchorVersion !== this.anchorVersion || !this.calibration)) {
+        const defining = state.anchorOwner === this.network.id;
+        const acceptedOwnPoints = defining && this.pendingAnchors && JSON.stringify(state.anchors) === JSON.stringify(this.pendingAnchors);
+        this.anchorVersion = state.anchorVersion;
+        if (!acceptedOwnPoints) {
+          this.calibration = new Calibration(state.config.space, { defining, targets: state.anchors, alignment: this.seedAlignment });
+          const alignment = this.seedAlignment || identity;
+          this.rig.rotation.y = alignment.yaw; this.rig.position.fromArray(alignment.offset);
+        }
+        this.pendingAnchors = null; this.hasPaddle = false;
       }
       this.localPaused = state.paused;
       if (this.pendingSpawn && (!state.ball || state.ball.id <= this.pendingSpawn.oldId) && performance.now() - this.pendingSpawn.at < 1000 && !state.paused) {
@@ -119,10 +132,17 @@ export class Sandbox {
   }
   startSession() {
     const session = this.renderer.xr.getSession();
+    this.isPassthrough = session.environmentBlendMode === 'alpha-blend' || session.environmentBlendMode === 'additive';
     this.hud.plane.visible = true;
+    this.seedAlignment = null; this.needsReentry = false;
     this.restartCalibration();
     this.reference = this.renderer.xr.getReferenceSpace();
-    this.resetListener = () => this.restartCalibration();
+    this.resetListener = () => {
+      // A changed tracking reference cannot reuse the entry transform safely.
+      // Require a new entry instead of silently moving the playing area.
+      this.needsReentry = true;
+      this.restartCalibration();
+    };
     this.reference?.addEventListener('reset', this.resetListener);
     this.visibilityListener = () => { if (session.visibilityState !== 'visible') this.loseTracking(); };
     session.addEventListener('visibilitychange', this.visibilityListener);
@@ -131,29 +151,42 @@ export class Sandbox {
   endSession() {
     this.network.send({ type: 'invalidate' });
     this.reference?.removeEventListener('reset', this.resetListener);
-    this.calibration?.reset(this.network.state?.config?.space || this.spaces.profiles[this.spaces.active].space);
+    this.calibration = null; this.seedAlignment = null; this.pendingAnchors = null;
     this.hud.plane.visible = false; this.ballMesh.visible = false; this.remote.group.visible = false;
     this.localPaused = true; this.poseValid = false; this.ball = null; this.hasPaddle = false;
     this.rig.position.set(0, 0, 0); this.rig.rotation.set(0, 0, 0);
     for (const hand of Object.values(this.localHands)) hand.visible = false;
     this.audio.stop();
+    this.markers.group.visible = false;
+    this.scene.background = this.background; if (this.court) this.court.visible = true; this.safeZone.group.visible = true;
   }
   restartCalibration() {
     this.network.send({ type: 'invalidate' });
     const space = this.network.state?.config?.space;
-    if (space) this.calibration = new Calibration(space);
+    this.pendingAnchors = null;
+    if (space) this.calibration = new Calibration(space, { defining: this.network.state.anchorOwner === this.network.id, targets: this.network.state.anchors, alignment: this.seedAlignment });
     this.poseValid = false; this.hasPaddle = false; this.localPaused = true; this.pendingHit = null;
-    this.rig.position.set(0, 0, 0); this.rig.rotation.set(0, 0, 0);
+    const alignment = this.seedAlignment || identity;
+    this.rig.position.fromArray(alignment.offset); this.rig.rotation.set(0, alignment.yaw, 0);
     this.updateUI();
   }
   loseTracking() {
     if (this.poseValid) this.network.send({ type: 'lost' });
     this.poseValid = false; this.hasPaddle = false; this.localPaused = true;
+    this.showPhysicalRoom(true);
     if (this.calibration?.collecting) { this.calibration.collecting = false; this.calibration.error = 'Tracking lost during sample. Hold still and retry.'; }
   }
   readyOrPause() {
     this.network.send({ type: this.network.state?.paused ? 'ready' : 'pause' });
     if (!this.network.state?.paused) this.localPaused = true;
+  }
+  showPhysicalRoom(setup) {
+    const show = this.isPassthrough && setup;
+    this.scene.background = show ? null : this.background;
+    if (this.court) this.court.visible = !show;
+    // The aligned floor guide remains over passthrough while players get ready.
+    // Do not show an unaligned guide to the matching player.
+    this.safeZone.group.visible = !this.needsReentry && Boolean(this.calibration?.complete || (this.calibration?.defining && this.seedAlignment));
   }
   updateUI() {
     const state = this.network.state;
@@ -168,6 +201,13 @@ export class Sandbox {
     const viewer = frame.getViewerPose(reference);
     if (!viewer || viewer.emulatedPosition || session.visibilityState !== 'visible') return false;
     readTransform(this.raw.head, viewer.transform);
+    // Capture entry from the first valid HEAD pose, even if controllers are
+    // temporarily unavailable. Calibration and manual retries keep this origin.
+    if (!this.seedAlignment) {
+      this.seedAlignment = centerAlignment(this.raw.head);
+      if (this.calibration && !this.calibration.complete) this.calibration.alignment = this.seedAlignment;
+      this.rig.rotation.y = this.seedAlignment.yaw; this.rig.position.fromArray(this.seedAlignment.offset);
+    }
     this.sources.left = null; this.sources.right = null;
     for (const source of session.inputSources) {
       if (!hands.includes(source.handedness) || !source.gripSpace || !source.gamepad) continue;
@@ -219,6 +259,13 @@ export class Sandbox {
     const state = this.network.state;
     if (!frame || !session) { this.remote.group.visible = false; this.ballMesh.visible = false; return; }
     this.hud.plane.visible = true;
+    if (this.needsReentry) {
+      this.showPhysicalRoom(true);
+      this.remote.group.visible = false; this.ballMesh.visible = false; this.markers.group.visible = false;
+      for (const hand of Object.values(this.localHands)) hand.visible = false;
+      this.hud.set('Headset recentered. Exit and enter VR again. The reference player must enter from the room center, then choose A and B again.', true);
+      return;
+    }
     if (gap) this.loseTracking();
     if (!this.readTracking(frame, session)) {
       this.loseTracking(); this.remote.group.visible = false;
@@ -231,10 +278,19 @@ export class Sandbox {
     if (this.calibration?.collecting && this.calibration.sample(this.raw.right.p, now)) {
       const alignment = this.calibration.alignment;
       if (alignment) { this.rig.rotation.y = alignment.yaw; this.rig.position.fromArray(alignment.offset); }
-      if (this.calibration.complete) this.network.send({ type: 'calibrated', error: this.calibration.residual });
+      if (this.calibration.complete) {
+        if (this.calibration.defining) {
+          this.pendingAnchors = this.calibration.targets;
+          this.network.send({ type: 'defineAnchors', points: this.pendingAnchors });
+        } else this.network.send({ type: 'calibrated', error: this.calibration.residual });
+      }
       this.updateUI();
     }
-    const alignment = this.calibration?.alignment || identity;
+    const alignment = this.calibration?.alignment || this.seedAlignment || identity;
+    this.markers.update(this.calibration, alignment);
+    const setup = !this.calibration?.complete || state?.paused || this.localPaused || !this.network.fresh;
+    this.racquet.visible = Boolean(this.calibration?.complete);
+    this.showPhysicalRoom(setup);
     for (const key of parts) {
       transformPoint(this.world[key].p, this.raw[key].p, alignment);
       transformQuaternion(this.world[key].q, this.raw[key].q, alignment.yaw);
@@ -251,7 +307,7 @@ export class Sandbox {
     const other = state?.players.find(player => player.id !== this.network.id);
     const otherFresh = this.network.fresh && other?.tracked && other.age + now - this.network.lastStateAt < 300;
     let nearest = Infinity, warning = '';
-    if (this.calibration?.complete && otherFresh) {
+    if (PLAYER_PROXIMITY_ENABLED && this.calibration?.complete && otherFresh) {
       for (const a of parts) for (const b of parts) nearest = Math.min(nearest, distance(this.world[a].p, other.pose[b].p));
       if (nearest < this.proximityDistance) warning = `Partner nearby (${nearest.toFixed(1)} m between tracked points).`;
     }
@@ -301,7 +357,7 @@ export class Sandbox {
       if (!this.network.id) text = 'Leave VR and join the shared sandbox on the setup page first.';
       else if (!this.network.fresh) text = 'Connection stale. Ball paused. Check your LAN connection.';
       else if (!this.calibration?.complete) text = this.calibration?.instruction || 'Waiting for shared room settings.';
-      else text = `${warning || state.reason} ${state.paused ? 'Check alignment together. RIGHT grip: ready. ' : `${this.hand === 'right' ? 'LEFT' : 'RIGHT'} trigger: new ball. RIGHT grip: pause. `}LEFT grip: clear. X: speed. B: recalibrate. ${state.speed} m/s. P${this.network.id}.`;
+      else text = `${warning || state.reason} ${state.paused ? 'Mint floor outline: play area. Cross: center. Check alignment. RIGHT grip: ready. ' : `${this.hand === 'right' ? 'LEFT' : 'RIGHT'} trigger: new ball. RIGHT grip: pause. `}LEFT grip: clear. X: speed. B: recalibrate. ${state.speed} m/s. P${this.network.id}.`;
       if (now < this.errorUntil) text = this.error;
       this.hud.set(text, Boolean(warning || !this.network.fresh));
     }

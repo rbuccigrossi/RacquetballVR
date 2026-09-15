@@ -31,8 +31,11 @@ try {
       const spaces = loadSpaces({ getItem: () => null });
       const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(), rig = new THREE.Group();
       rig.add(camera); scene.add(rig);
+      scene.background = new THREE.Color(0xaaaaaa);
+      const court = new THREE.Group(); court.name = 'regulation-court'; scene.add(court);
       const reference = new EventTarget(), session = new EventTarget(), xr = new EventTarget();
       session.visibilityState = 'visible';
+      session.environmentBlendMode = 'alpha-blend';
       const sources = ['left', 'right'].map(hand => ({ handedness: hand, gripSpace: { hand }, gamepad: { buttons: Array.from({ length: 6 }, () => ({ pressed: false })), hapticActuators: [{ pulse: async () => { window.sim.pulses++; return true; } }] } }));
       session.inputSources = sources;
       xr.getSession = () => session; xr.getReferenceSpace = () => reference;
@@ -50,9 +53,9 @@ try {
       position('head', [x, 1.65, 0]); position('left', [x - 0.25, 1.15, 0]); position('right', [x + 0.25, 1.15, 0]);
       const frame = {
         getViewerPose: () => window.sim.lost ? null : ({ transform: raw.head, emulatedPosition: false }),
-        getPose: space => ({ transform: raw[space.hand], emulatedPosition: false })
+        getPose: space => window.sim.controllersLost ? null : ({ transform: raw[space.hand], emulatedPosition: false })
       };
-      window.sim = { sandbox, position, sources, reference, frame, session, pulses: 0, lost: false,
+      window.sim = { sandbox, position, sources, reference, frame, session, pulses: 0, lost: false, controllersLost: index === 0,
         start() { sandbox.startSession(); this.timer = setInterval(() => sandbox.update(performance.now(), frame), 16); },
         press(hand, button, down) { sources.find(source => source.handedness === hand).gamepad.buttons[button].pressed = down; }
       };
@@ -60,6 +63,20 @@ try {
     await page.getByRole('button', { name: 'Join shared sandbox' }).click();
     await page.waitForFunction(() => window.sim.sandbox.network.id !== null && window.sim.sandbox.network.state?.config);
     await page.evaluate(() => window.sim.start());
+    if (i === 0) {
+      await page.waitForFunction(() => window.sim.sandbox.seedAlignment);
+      await page.evaluate(() => {
+        window.sim.entryAlignment = structuredClone(window.sim.sandbox.seedAlignment);
+        window.sim.position('head', [0.4, 1.65, 0.6]);
+        window.sim.controllersLost = false;
+      });
+      await page.waitForFunction(() => window.sim.sandbox.poseValid);
+      await page.evaluate(() => window.sim.sandbox.restartCalibration());
+      await page.waitForFunction(() => window.sim.sandbox.network.state.anchors === null);
+      assert.deepEqual(await page.evaluate(() => window.sim.sandbox.seedAlignment), await page.evaluate(() => window.sim.entryAlignment));
+      await page.evaluate(() => window.sim.position('head', [-0.9, 1.65, 0]));
+    }
+    await page.waitForFunction(() => window.sim.sandbox.poseValid);
   }
   const tap = async (page, hand, index) => {
     await page.evaluate(([hand, index]) => window.sim.press(hand, index, true), [hand, index]);
@@ -67,22 +84,30 @@ try {
     await page.evaluate(([hand, index]) => window.sim.press(hand, index, false), [hand, index]);
     await page.waitForTimeout(30);
   };
+  const physicalPoints = [[-0.5, 0.9, -0.5], [0.6, 1.1, -0.3]];
+  assert.ok(await pages[0].evaluate(() => window.sim.sandbox.markers.group.visible && window.sim.sandbox.scene.background === null && !window.sim.sandbox.court.visible));
+  assert.ok(await pages[0].evaluate(() => window.sim.sandbox.safeZone.group.visible));
+  assert.equal(await pages[1].evaluate(() => window.sim.sandbox.safeZone.group.visible), false);
   for (const page of pages) {
-    for (let marker = 0; marker < 3; marker++) {
-      await page.evaluate(index => window.sim.position('right', window.sim.sandbox.calibration.targets[index]), marker);
+    await page.waitForFunction(() => window.sim.sandbox.calibration.defining || window.sim.sandbox.calibration.targets);
+    for (let marker = 0; marker < 2; marker++) {
+      await page.evaluate(point => window.sim.position('right', point), physicalPoints[marker]);
       await tap(page, 'right', 0);
       await page.waitForFunction(stage => window.sim.sandbox.calibration.stage === stage, marker + 1);
     }
+    assert.equal(await page.evaluate(() => window.sim.sandbox.markers.group.visible), false);
+    assert.ok(await page.evaluate(() => window.sim.sandbox.safeZone.group.visible && !window.sim.sandbox.court.visible));
   }
   for (let i = 0; i < 2; i++) {
     await pages[i].evaluate(index => window.sim.position('right', [index ? 1.15 : -0.65, 1.15, 0]), i);
     await pages[i].waitForFunction(() => window.sim.sandbox.network.state.players.every(p => p.calibrated && p.tracked));
   }
   assert.ok(await pages[0].evaluate(() => window.sim.sandbox.remote.group.visible));
-  const accuracy = await pages[0].evaluate(() => Math.abs(window.sim.sandbox.remote.head.position.x - 0.9));
+  const accuracy = await pages[0].evaluate(() => Math.abs(window.sim.sandbox.remote.head.position.x - 1.8));
   assert.ok(accuracy < 0.001, `Remote avatar offset ${accuracy}`);
   for (const page of pages) await tap(page, 'right', 1);
   await pages[0].waitForFunction(() => window.sim.sandbox.network.state.paused === false);
+  await pages[0].waitForFunction(() => window.sim.sandbox.court.visible && window.sim.sandbox.scene.background !== null);
   await tap(pages[0], 'left', 0);
   await pages[1].waitForFunction(() => window.sim.sandbox.ball?.id === 1);
   await tap(pages[1], 'left', 0);
@@ -90,14 +115,14 @@ try {
   // Sweep the production local racquet through a freshly spawned ball. The
   // prediction must be accepted by the real server and reach the second client.
   await pages[0].evaluate(() => {
-    window.sim.position('left', [-0.65, 1.3, 0]);
-    window.sim.position('right', [-0.65, 1.03, -0.15]);
+    window.sim.position('left', [-0.65, 1.3, -0.27]);
+    window.sim.position('right', [-0.8, 1.3, 0]);
   });
   await pages[0].waitForTimeout(80);
   await tap(pages[0], 'left', 0);
   await pages[0].waitForFunction(() => window.sim.sandbox.ball?.id === 3);
-  for (const z of [-0.06, 0.03, 0.12]) {
-    await pages[0].evaluate(z => window.sim.position('right', [-0.65, 1.03, z]), z);
+  for (const x of [-0.71, -0.62, -0.53]) {
+    await pages[0].evaluate(x => window.sim.position('right', [x, 1.3, 0]), x);
     await pages[0].waitForTimeout(20);
   }
   await pages[1].waitForFunction(() => window.sim.sandbox.network.state.ball?.id === 3 && window.sim.sandbox.network.state.ball.revision > 0);
@@ -113,15 +138,31 @@ try {
   await pages[1].waitForFunction(() => window.sim.sandbox.ball?.id === 4);
   assert.ok(await pages[0].evaluate(() => {
     const audio = window.sim.sandbox.audio;
-    return audio.context.state === 'running' && audio.voices.length === 12 && Math.abs(audio.context.listener.positionX.value + 0.9) < 0.03;
+    return audio.context.state === 'running' && audio.voices.length === 12 && Math.abs(audio.context.listener.positionX.value) < 0.03;
   }));
 
-  // Put one tracked hand near the other player: both representations and haptics update.
-  await pages[1].evaluate(() => window.sim.position('left', [-0.8, 1.65, 0]));
-  await pages[0].waitForFunction(() => window.sim.pulses > 0 && window.sim.sandbox.remote.halo.visible);
+  // Nearby players can ready and play with no proximity visuals or haptics.
+  await tap(pages[0], 'right', 1);
+  await pages[0].waitForFunction(() => window.sim.sandbox.network.state.paused);
+  await tap(pages[0], 'left', 1);
+  for (const page of pages) await page.evaluate(() => {
+    window.sim.position('head', [-0.9, 1.65, 0]);
+    window.sim.position('left', [-1, 1.2, 0]);
+    window.sim.position('right', [-0.8, 1.2, 0]);
+  });
+  await pages[0].waitForTimeout(150);
+  for (const page of pages) await page.evaluate(() => { window.sim.pulses = 0; });
+  for (const page of pages) await tap(page, 'right', 1);
+  await pages[0].waitForFunction(() => !window.sim.sandbox.network.state.paused);
+  await pages[0].waitForTimeout(750);
+  for (const page of pages) {
+    assert.ok(await page.evaluate(() => window.sim.sandbox.remote.group.visible && !window.sim.sandbox.remote.halo.visible && Math.abs(window.sim.sandbox.world.head.p[0]) < 0.001));
+    assert.equal(await page.evaluate(() => window.sim.pulses), 0);
+  }
   await pages[1].evaluate(() => { window.sim.lost = true; });
   await pages[0].waitForFunction(() => window.sim.sandbox.network.state.paused && !window.sim.sandbox.remote.group.visible);
   assert.equal(await pages[1].evaluate(() => window.sim.sandbox.localPaused), true);
+  assert.equal(await pages[1].evaluate(() => window.sim.sandbox.court.visible), false);
   await pages[1].evaluate(() => { window.sim.lost = false; });
   for (const page of pages) await page.waitForFunction(() => window.sim.sandbox.network.state.players.every(p => p.tracked));
   for (const page of pages) await tap(page, 'right', 1);
@@ -131,9 +172,12 @@ try {
   await pages[1].evaluate(() => window.sim.reference.dispatchEvent(new Event('reset')));
   await pages[0].waitForFunction(() => window.sim.sandbox.network.state.paused && window.sim.sandbox.network.state.players.some(p => !p.calibrated));
   assert.equal(await pages[1].evaluate(() => window.sim.sandbox.calibration.stage), 0);
+  assert.equal(await pages[1].evaluate(() => window.sim.sandbox.needsReentry), true);
+  await pages[0].evaluate(() => window.sim.reference.dispatchEvent(new Event('reset')));
+  for (const page of pages) await page.waitForFunction(() => !window.sim.sandbox.network.state.anchors && window.sim.sandbox.network.state.players.every(p => !p.calibrated) && window.sim.sandbox.calibration.stage === 0);
   for (const page of pages) await page.evaluate(() => { clearInterval(window.sim.timer); window.sim.sandbox.network.leave(); });
   assert.deepEqual(errors, []);
-  console.log('PASS: two production browser clients with synthetic XR frames: different-origin calibration, aligned avatars, ready/pause, either-player spawning, predicted hit accepted by server, hand swap, audio listener/pool, speed, clear, proximity haptics, tracking-loss recovery, reference-space reset.');
+  console.log('PASS: two production browser clients: entry center captured before controllers, preserved across calibration retry, shared aligned center, visible passthrough outline, nearby ready/play without proximity haptics, avatars, spawning/hits, hand swap, audio, tracking recovery and recenter invalidation.');
   console.log('This does not verify native XR presentation, physical alignment accuracy, real controller latency, or Quest frame pacing.');
 } finally {
   await browser.close();

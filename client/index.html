@@ -24,22 +24,24 @@
         <p class="field-help">First player to join shares their selected space. Join here before entering VR on each headset. Leave to edit location settings.</p>
         <button id="join-room" class="primary" type="button">Join shared sandbox</button>
         <p id="sandbox-status" class="field-help" role="status">One shared ball. No scores or assigned turns.</p>
+        <label class="sound-toggle"><input id="calibration-passthrough" type="checkbox" checked> See the physical room during setup and pauses</label>
         <button id="enter-vr" class="primary" disabled>Checking headset… <span>↗</span></button>
         <p id="xr-status" class="xr-status" role="status">Checking secure WebXR availability.</p>
         <details class="alignment-guide" open>
-          <summary>Prepare three alignment marks</summary>
-          <p class="field-help">Facing the intended front wall, mark A at the rear-left corner of your physical footprint. Mark B exactly 1 meter right of A, and C exactly 1 meter forward of A. Use the same controller reference point at all three marks.</p>
-          <p class="field-help">Hold the center of the right controller grip 10 cm above each mark, using a measured support for repeatability. Press its trigger and hold still for half a second. Both players sample A, B, then C. Remove the support from the play area afterward.</p>
+          <summary>Choose two shared physical spots</summary>
+          <p class="field-help">Player 1 enters VR at the center of the clear space, facing the intended front wall. That entry position stays the play area center, including when retrying calibration. Choose spot A on the floor or furniture: rest your right controller against it and press trigger. Repeat at a distinct spot B to the side. The spots can be at different heights; no measuring is required.</p>
+          <p class="field-help">Tell your partner which spots are A and B. They touch those same physical spots in order with their right controller, matching its placement and direction. Hold still briefly after each press. Suggested floating markers start around 3 feet high; they move to your chosen spots. Your partner’s labels are approximate until alignment is finished.</p>
+          <p class="field-help">Passthrough shows the real room during setup when available. Keep objects fixed until both players finish. After alignment, the mint floor outline shows the play area and the cross marks its center, including while paused. Check each other’s hands before both press right grip to begin. Player proximity alerts are currently off.</p>
           <p id="alignment-status" class="field-help" role="status">Join the sandbox, then enter VR to align.</p>
         </details>
         <div class="fields"><button id="ready-player" class="secondary" type="button" disabled>Mark ready / resume</button><button id="restart-alignment" class="secondary" type="button" disabled>Restart alignment</button></div>
         <div class="fields sandbox-options">
           <label>Racquet hand<select id="racquet-hand"><option value="right">Right hand</option><option value="left">Left hand</option></select></label>
-          <label>Nearby warning (meters)<input id="proximity-distance" type="number" min="0.2" max="3" step="0.05" value="1.37"></label>
+          <label>Player proximity: off<input id="proximity-distance" type="number" min="0.2" max="3" step="0.05" value="1.37" disabled aria-label="Player proximity alerts disabled for physics testing"></label>
         </div>
         <label class="speed-control">Ball speed <span id="speed-label">8 m/s maximum</span><input id="ball-speed" type="range" min="2" max="16" step="1" value="8" disabled></label>
         <div class="fields"><button id="clear-ball" class="secondary" type="button" disabled>Clear ball</button><label class="sound-toggle"><input id="sound-enabled" type="checkbox" checked> Positional sound</label></div>
-        <p class="field-help">In VR: opposite-hand trigger = new ball; right grip/A = ready or pause; left grip/Y = clear; X = speed; B = restart alignment. Proximity, edge, and overhead cues warn without enforcing separate player zones.</p>
+        <p class="field-help">In VR: opposite-hand trigger = new ball; right grip/A = ready or pause; left grip/Y = clear; X = speed; B = restart alignment. Player proximity alerts are off for physics testing. Edge and overhead cues remain enabled.</p>
       </section>
       <div class="section-heading"><h2>Physical space</h2><span>FEET</span></div>
       <form id="space-form">
@@ -66,13 +68,11 @@
           <label>Depth <span class="input-wrap"><input id="depth" name="depth" type="number" min="1" max="12" step="any" required><span>m</span></span></label>
         </div>
         <details>
-          <summary>Position & rotation</summary>
+          <summary>Rotation</summary>
           <div class="fields offsets">
-            <label>Center X <input id="x" name="x" type="number" step="0.01" required value="0"></label>
-            <label>Center Z <input id="z" name="z" type="number" step="0.01" required value="0.8"></label>
             <label>Rotation (°) <input id="yaw" name="yaw" type="number" min="-180" max="180" step="1" required value="0"></label>
           </div>
-          <p class="field-help">The physical footprint and court share a center in this preview. Negative Z faces the front wall.</p>
+          <p class="field-help">The play area is centered on Player 1’s VR entry position. Face the intended front wall when entering.</p>
         </details>
         <button class="secondary" type="submit">Apply standing area <span>↗</span></button>
         <p id="zone-status" class="field-help" role="status">Standing area must fit the physical footprint, inset, and virtual court.</p>

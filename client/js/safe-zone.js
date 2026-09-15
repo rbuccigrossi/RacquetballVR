@@ -5,7 +5,7 @@ export class SafeZone {
   constructor(scene, configuration) {
     this.group = new THREE.Group();
     this.group.name = 'safe-play-zone';
-    this.core = new THREE.MeshBasicMaterial({ color: 0x50ffd1, depthWrite: false });
+    this.core = new THREE.MeshBasicMaterial({ color: 0x50ffd1, depthWrite: false, toneMapped: false });
     this.glow = new THREE.MeshBasicMaterial({ color: 0x21efb3, transparent: true, opacity: 0.16, depthWrite: false });
     scene.add(this.group);
     this.update(configuration);
@@ -25,6 +25,9 @@ export class SafeZone {
     const strip = (width, depth, sx, sz, material, y = 0) => {
       (material === this.core ? coreSegments : glowSegments).push({ width, depth, sx, sz, y });
     };
+    // A fixed cross makes the entry-defined center easy to find in passthrough.
+    strip(0.5, 0.035, 0, 0, this.core, 0.001);
+    strip(0.035, 0.5, 0, 0, this.core, 0.001);
     for (const side of [-1, 1]) {
       strip(w + 0.1, 0.12, 0, side * d / 2, this.glow);
       strip(0.12, d + 0.1, side * w / 2, 0, this.glow);

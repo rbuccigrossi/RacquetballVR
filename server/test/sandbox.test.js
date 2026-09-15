@@ -6,59 +6,120 @@ import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import { Room, TRACKING_TIMEOUT, validPose } from '../room.js';
 import { createServer } from '../server.js';
-import { Calibration, solveAlignment, calibrationTargets } from '../../client/js/calibration.js';
-import { transformPoint, transformQuaternion } from '../../client/js/math.js';
+import { Calibration, solveAlignment, centerAlignment, validateAnchors } from '../../client/js/calibration.js';
+import { transformPoint, transformQuaternion, rotateVector } from '../../client/js/math.js';
 import { SPACE_PRESETS, fitStandingZone } from '../../client/js/spaces.js';
-import { BALL_RADIUS, stepBall, sweepRacquet, hitVelocity, STEP } from '../../client/js/physics.js';
+import { BALL_RADIUS, stepBall, sweepRacquet, hitVelocity, STEP, RACQUET_MOUNT, racquetPose } from '../../client/js/physics.js';
 
 const config = { space: SPACE_PRESETS.garage, zone: fitStandingZone(SPACE_PRESETS.garage), label: 'Garage' };
+const targets = [[-0.6, 0.1, -0.3], [0.7, 0.9, -0.5]];
+test('server shares a centered standing area even when a client has old offsets', () => {
+  const room = new Room();
+  room.join('a', { ...config, zone: { width: 2, depth: 3, x: 0.5, z: 0.8, yaw: 0 } });
+  assert.deepEqual(room.snapshot().config.zone, { width: 2, depth: 3, x: 0, z: 0, yaw: 0 });
+});
+test('racquet tip points forward and front face left; physics uses the identical mount', () => {
+  assert.deepEqual(rotateVector([0, 0, 0], [0, 1, 0], RACQUET_MOUNT), [0, 0, -1]);
+  assert.deepEqual(rotateVector([0, 0, 0], [0, 0, 1], RACQUET_MOUNT), [-1, 0, 0]);
+  const pose = racquetPose({ center: [0, 0, 0], normal: [0, 0, 0] }, { p: [0, 1, 0], q: [0, 0, 0, 1] });
+  assert.deepEqual(pose.center, [0, 1, -0.27]);
+  assert.deepEqual(pose.normal, [-1, 0, 0]);
+});
 const makePose = (x = 0) => ({ head: { p: [x, 1.7, 0], q: [0, 0, 0, 1] }, left: { p: [x - 0.3, 1.2, 0], q: [0, 0, 0, 1] }, right: { p: [x + 0.3, 1.2, 0], q: [0, 0, 0, 1] } });
 function prepared() {
   const events = [];
   const room = new Room(event => events.push(event));
   room.join('a', config); room.join('b', config);
+  room.handle('a', { type: 'defineAnchors', rev: room.rev, anchorVersion: room.anchorVersion, points: targets }, 1000);
   for (const [i, id] of ['a', 'b'].entries()) {
-    room.handle(id, { type: 'calibrated', rev: room.rev, error: 0.01 }, 1000);
-    room.handle(id, { type: 'pose', rev: room.rev, seq: 1, pose: makePose(i ? 1 : -1) }, 1000);
+    room.handle(id, { type: 'calibrated', rev: room.rev, anchorVersion: room.anchorVersion, error: 0.01 }, 1000);
+    room.handle(id, { type: 'pose', rev: room.rev, anchorVersion: room.anchorVersion, seq: 1, pose: makePose(i ? 1 : -1) }, 1000);
   }
   for (const id of ['a', 'b']) room.handle(id, { type: 'ready', rev: room.rev }, 1000);
-  return { room, events, send: (id, message, time = 1000) => room.handle(id, { rev: room.rev, ...message }, time) };
+  return { room, events, send: (id, message, time = 1000) => room.handle(id, { rev: room.rev, anchorVersion: room.anchorVersion, ...message }, time) };
 }
 
-test('two independent origins and yaw angles map to the same three markers', () => {
-  const targets = calibrationTargets(config.space);
+test('arbitrary anchors at different heights align independent origins and an unsampled room point', () => {
+  const points = [...targets, [1.5, 1.7, 2]];
   for (const yaw of [-2.1, 0.6]) {
     const offset = [1.2, 0.04, -0.8];
-    const raw = targets.map(p => transformPoint([0, 0, 0], p.map((n, i) => n - offset[i]), { yaw: -yaw, offset: [0, 0, 0] }));
-    const alignment = solveAlignment(raw[0], raw[1], targets[0]);
+    const raw = points.map(p => transformPoint([0, 0, 0], p.map((n, i) => n - offset[i]), { yaw: -yaw, offset: [0, 0, 0] }));
+    const alignment = solveAlignment(raw[0], raw[1], targets[0], targets[1]);
     for (let j = 0; j < 3; j++) {
       const mapped = transformPoint([0, 0, 0], raw[j], alignment);
-      assert.ok(mapped.every((n, i) => Math.abs(n - targets[j][i]) < 1e-8));
+      assert.ok(mapped.every((n, i) => Math.abs(n - points[j][i]) < 1e-8));
     }
     const q = [0, 0, 0, 0];
     transformQuaternion(q, [0, Math.sin(-yaw / 2), 0, Math.cos(-yaw / 2)], alignment.yaw);
     assert.ok(Math.abs(q[1]) < 1e-8 && Math.abs(q[3] - 1) < 1e-8);
   }
-  assert.throws(() => solveAlignment([0, 0.1, 0], [0.7, 0.1, 0], targets[0]), /1 meter/);
+  assert.throws(() => solveAlignment([0, 0.1, 0], [0.7, 0.1, 0], ...targets), /do not match/);
+  assert.match(validateAnchors([[0, 0, 0], [0, 1, 0]]), /farther to the side/);
+  assert.match(validateAnchors([[NaN, 0, 0], targets[1]]), /valid/);
 });
 
-test('calibration averages stable samples and independently rejects a bad third mark', () => {
-  const calibration = new Calibration(config.space);
+test('reference headset establishes room center and facing without moving the floor', () => {
+  const head = { p: [2, 1.7, -3], q: [0, Math.sin(0.7), 0, Math.cos(0.7)] };
+  const alignment = centerAlignment(head);
+  const p = transformPoint([0, 0, 0], head.p, alignment);
+  assert.ok(Math.hypot(p[0], p[2]) < 1e-8); assert.equal(p[1], 1.7);
+  const q = [0, 0, 0, 0];
+  transformQuaternion(q, head.q, alignment.yaw);
+  assert.ok(Math.abs(q[1]) < 1e-8);
+});
+
+test('two-point calibration averages stable samples, rejects mismatched spacing and retries B', () => {
+  const calibration = new Calibration(config.space, { targets });
   const sample = (point, start) => {
     calibration.startSample(start);
     for (let i = 1; i <= 40; i++) calibration.sample(point, start + i * 16);
   };
-  sample(calibration.targets[0], 0); sample(calibration.targets[1], 1000);
-  sample(calibration.targets[2].map((n, i) => i === 0 ? n + 0.15 : n), 2000);
+  sample(targets[0], 0);
+  sample(targets[1].map((n, i) => i === 0 ? n + 0.4 : n), 1000);
   assert.equal(calibration.complete, false);
-  assert.match(calibration.error, /Third marker/);
-  sample(calibration.targets[2], 3000);
+  assert.match(calibration.error, /do not match/);
+  assert.equal(calibration.stage, 1);
+  sample(targets[1], 2000);
   assert.equal(calibration.complete, true);
-  calibration.reset(config.space);
+  calibration.reset(config.space, { targets });
   calibration.startSample(0);
   for (let i = 1; i <= 40; i++) calibration.sample([i * 0.02, 0.1, 0], i * 16);
   assert.equal(calibration.stage, 0);
   assert.match(calibration.error, /moved/);
+});
+
+test('reference player freely chooses and publishes two points; follower waits for them', () => {
+  const follower = new Calibration(config.space);
+  follower.startSample(0); assert.equal(follower.collecting, false);
+  assert.match(follower.error, /Waiting/);
+  const alignment = { yaw: 0.3, offset: [0.2, 0, -0.1] };
+  const calibration = new Calibration(config.space, { defining: true, alignment });
+  for (let point = 0; point < 2; point++) {
+    calibration.startSample(point * 1000);
+    for (let frame = 1; frame <= 24; frame++) calibration.sample(targets[point], point * 1000 + frame * 16);
+  }
+  assert.equal(calibration.complete, true);
+  for (let i = 0; i < 2; i++) {
+    const expected = transformPoint([0, 0, 0], targets[i], alignment);
+    assert.ok(expected.every((n, j) => Math.abs(n - calibration.targets[i][j]) < 1e-8));
+  }
+});
+
+test('shared anchor revisions invalidate both players and reject stale alignment or poses', () => {
+  const { room, send } = prepared();
+  const anchorVersion = room.anchorVersion;
+  assert.throws(() => send('b', { type: 'defineAnchors', points: targets }), /reference player/);
+  send('a', { type: 'invalidate' });
+  assert.equal(room.anchors, null); assert.equal(room.paused, true);
+  assert.ok([...room.players.values()].every(p => !p.calibrated && !p.ready && !p.pose && !p.previousPose));
+  assert.throws(() => send('b', { type: 'calibrated', error: 0, anchorVersion }), /changed/);
+  assert.throws(() => send('a', { type: 'defineAnchors', points: targets, anchorVersion }), /changed/);
+  send('a', { type: 'defineAnchors', points: targets });
+  send('a', { type: 'pose', seq: 2, pose: makePose(), anchorVersion });
+  assert.equal(room.players.get('a').pose, null);
+  room.leave('a'); assert.equal(room.anchorOwner, 2); assert.equal(room.anchors, null);
+  send('b', { type: 'defineAnchors', points: targets });
+  assert.deepEqual(room.anchors, targets);
 });
 
 test('fixed-step ball collides with walls, floor and ceiling without tunneling', () => {
@@ -100,10 +161,10 @@ test('either player can replace the sole ball; simultaneous requests leave newes
 test('server accepts plausible hits once and rejects old ball IDs/revisions', () => {
   const { room, send, events } = prepared();
   send('a', { type: 'spawn' });
-  room.ball.p = [-0.7, 1.47, 0]; room.ball.v = [0, 0, -3];
+  room.ball.p = [-0.7, 1.2, -0.27]; room.ball.v = [-3, 0, 0];
   const hit = { type: 'hit', ballId: room.ball.id, ballRevision: 0, contact: [...room.ball.p], eventId: 'one' };
   send('a', hit);
-  assert.equal(room.ball.revision, 1); assert.ok(room.ball.v[2] > 0);
+  assert.equal(room.ball.revision, 1); assert.ok(room.ball.v[0] > 0);
   send('b', hit); assert.equal(room.ball.revision, 1);
   assert.equal(events.filter(e => e.kind === 'racquet').length, 1);
   send('b', { type: 'spawn' }); const replacement = structuredClone(room.ball);
@@ -170,9 +231,11 @@ test('real WSS clients share roles, configuration, one ball, and disconnect paus
   const state = await waitFor(b, m => m.type === 'state' && m.players.length === 2);
   assert.equal(state.config.label, 'Garage');
   const rev = state.rev;
+  a.send({ type: 'defineAnchors', rev, anchorVersion: state.anchorVersion, points: targets });
+  const { anchorVersion } = await waitFor(b, m => m.type === 'state' && m.anchors);
   for (const [i, client] of [a, b].entries()) {
-    client.send({ type: 'calibrated', rev, error: 0.01 });
-    client.send({ type: 'pose', rev, seq: 1, pose: makePose(i) });
+    client.send({ type: 'calibrated', rev, anchorVersion, error: 0.01 });
+    client.send({ type: 'pose', rev, anchorVersion, seq: 1, pose: makePose(i) });
   }
   await waitFor(a, m => m.type === 'state' && m.players.every(p => p.tracked));
   a.send({ type: 'ready', rev }); b.send({ type: 'ready', rev });

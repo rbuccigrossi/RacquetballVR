@@ -2,8 +2,11 @@ import { COURT } from './config.js';
 import { dot, rotateVector } from './math.js';
 export const BALL_RADIUS = 0.0286;
 export const RACQUET_RADIUS = 0.155;
-export const RACQUET_OFFSET = [0, 0.27, 0];
-const faceNormal = [0, 0, 1];
+// Model +Y (tip) becomes grip -Z (forward); model +Z (front face)
+// becomes grip -X (left). Shared by local/remote meshes and server physics.
+export const RACQUET_MOUNT = [-0.5, -0.5, 0.5, 0.5];
+export const RACQUET_OFFSET = [0, 0, -0.27];
+export const RACQUET_FACE_NORMAL = [-1, 0, 0];
 export const STEP = 1 / 120;
 const minimum = [-COURT.width / 2 + BALL_RADIUS, BALL_RADIUS, -COURT.length / 2 + BALL_RADIUS];
 const maximum = [COURT.width / 2 - BALL_RADIUS, COURT.height - BALL_RADIUS, COURT.length / 2 - BALL_RADIUS];
@@ -47,7 +50,7 @@ export function stepBall(ball, dt, maxSpeed = 8, onImpact) {
 export function racquetPose(out, grip) {
   rotateVector(out.center, RACQUET_OFFSET, grip.q);
   for (let i = 0; i < 3; i++) out.center[i] += grip.p[i];
-  rotateVector(out.normal, faceNormal, grip.q);
+  rotateVector(out.normal, RACQUET_FACE_NORMAL, grip.q);
   return out;
 }
 

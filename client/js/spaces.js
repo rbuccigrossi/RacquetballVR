@@ -26,6 +26,8 @@ export function fitStandingZone(space) {
   };
 }
 
+export function centerStandingZone(zone) { return zone && { ...zone, x: 0, z: 0 }; }
+
 export function validateStandingZone(zone, space) {
   const error = validateSafeZone(zone);
   if (error) return error;
@@ -45,14 +47,15 @@ export function loadSpaces(storage) {
   for (const [key, preset] of Object.entries(SPACE_PRESETS)) {
     const candidate = saved?.profiles?.[key];
     const space = candidate && !validateSpace(candidate.space) ? { ...candidate.space } : { ...preset };
-    const zone = candidate && !validateStandingZone(candidate.zone, space) ? { ...candidate.zone } : fitStandingZone(space);
+    const centered = centerStandingZone(candidate?.zone);
+    const zone = centered && !validateStandingZone(centered, space) ? centered : fitStandingZone(space);
     state.profiles[key] = { space, zone };
   }
   if (Object.hasOwn(SPACE_PRESETS, saved?.active)) state.active = saved.active;
   // Retain the old Phase 1 standing rectangle only when it fits the garage.
   if (!saved) {
     try {
-      const old = JSON.parse(storage.getItem('racquetball-vr-safe-zone-v1'));
+      const old = centerStandingZone(JSON.parse(storage.getItem('racquetball-vr-safe-zone-v1')));
       if (old && !validateStandingZone(old, state.profiles.garage.space)) state.profiles.garage.zone = old;
     } catch { /* Invalid old data. */ }
   }

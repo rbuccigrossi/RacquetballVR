@@ -18,7 +18,7 @@ export function initializeSpaceControls(state, onChange) {
     const { space, zone } = active();
     preset.value = state.active;
     for (const key of ['width', 'depth', 'height', 'inset']) spaceForm.elements[key].value = space[key];
-    for (const key of ['width', 'depth', 'x', 'z', 'yaw']) zoneForm.elements[key].value = Number(zone[key].toFixed(6));
+    for (const key of ['width', 'depth', 'yaw']) zoneForm.elements[key].value = Number(zone[key].toFixed(6));
     const fullWidth = space.width * FEET;
     const fullDepth = space.depth * FEET;
     const scale = Math.min(260 / fullWidth, 140 / fullDepth);
@@ -58,7 +58,7 @@ export function initializeSpaceControls(state, onChange) {
   });
   zoneForm.addEventListener('submit', event => {
     event.preventDefault();
-    const zone = read(zoneForm, ['width', 'depth', 'x', 'z', 'yaw']);
+    const zone = { ...read(zoneForm, ['width', 'depth', 'yaw']), x: 0, z: 0 };
     const error = validateStandingZone(zone, active().space);
     report(zoneStatus, error);
     if (error) return;

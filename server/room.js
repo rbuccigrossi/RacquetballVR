@@ -1,6 +1,7 @@
-import { validateSpace, validateStandingZone } from '../client/js/spaces.js';
+import { validateSpace, validateStandingZone, centerStandingZone } from '../client/js/spaces.js';
 import { BALL_RADIUS, STEP, stepBall, racquetPose, hitVelocity } from '../client/js/physics.js';
 import { distance, dot } from '../client/js/math.js';
+import { validateAnchors } from '../client/js/calibration.js';
 
 export const TRACKING_TIMEOUT = 300;
 const vector = (v, size, limit) => Array.isArray(v) && v.length === size && v.every(n => Number.isFinite(n) && Math.abs(n) <= limit);
@@ -26,23 +27,28 @@ export class Room {
     this.reason = 'Join the sandbox and align both headsets.';
     this.tick = 0;
     this.eventId = 0;
+    this.anchors = null; this.anchorOwner = null; this.anchorVersion = 0;
   }
   join(connection, config, hand = 'right') {
     if (this.players.has(connection)) return this.players.get(connection).id;
     if (this.players.size >= 2) throw new Error('Two players are already connected.');
     if (!this.players.size) {
-      if (!config || validateSpace(config.space) || validateStandingZone(config.zone, config.space)) throw new Error('Select a valid physical space before joining.');
-      this.config = copy({ space: config.space, zone: config.zone, label: String(config.label || 'Shared space').slice(0, 40) });
+      const zone = centerStandingZone(config?.zone);
+      if (!config || validateSpace(config.space) || validateStandingZone(zone, config.space)) throw new Error('Select a valid physical space before joining.');
+      this.config = copy({ space: config.space, zone, label: String(config.label || 'Shared space').slice(0, 40) });
       this.rev++;
       this.ball = null;
     }
     const id = this.players.size && [...this.players.values()][0].id === 1 ? 2 : 1;
+    if (!this.players.size) { this.anchorOwner = id; this.clearAnchors(); }
     this.players.set(connection, { id, hand: hand === 'left' ? 'left' : 'right', ready: false, calibrated: false, tracked: false, pose: null, previousPose: null, lastPoseAt: 0, previousPoseAt: 0, seq: -1, lastHitAt: -Infinity });
     this.pause('A player joined. Check alignment and both mark ready.');
     return id;
   }
   leave(connection) {
+    const id = this.players.get(connection)?.id;
     if (!this.players.delete(connection)) return;
+    if (id === this.anchorOwner) { this.anchorOwner = [...this.players.values()][0]?.id ?? null; this.clearAnchors(); }
     this.pause('A player left. Ball paused.');
     this.ball = null;
     if (!this.players.size) this.config = null;
@@ -51,6 +57,10 @@ export class Room {
     this.paused = true;
     this.reason = reason;
     for (const player of this.players.values()) player.ready = false;
+  }
+  clearAnchors() {
+    this.anchors = null; this.anchorVersion++;
+    for (const player of this.players.values()) { player.calibrated = false; player.tracked = false; player.pose = null; player.previousPose = null; player.ready = false; }
   }
   healthy(now) {
     return this.players.size === 2 && [...this.players.values()].every(p => p.calibrated && p.tracked && now - p.lastPoseAt <= TRACKING_TIMEOUT);
@@ -61,7 +71,8 @@ export class Room {
     if (message.type === 'pause') { this.pause('Paused by a player. Both mark ready to resume.'); return; }
     if (message.type === 'reset') { this.ball = null; return; }
     if (message.type === 'invalidate') {
-      player.calibrated = false; player.tracked = false; player.pose = null;
+      if (player.id === this.anchorOwner) this.clearAnchors();
+      player.calibrated = false; player.tracked = false; player.pose = null; player.previousPose = null;
       this.pause('Alignment or tracking changed. Recalibrate before resuming.'); return;
     }
     if (message.type === 'lost') {
@@ -69,11 +80,23 @@ export class Room {
       this.pause('Tracking unavailable. Both mark ready when tracking returns.'); return;
     }
     if (message.rev !== this.rev) throw new Error('Room configuration changed. Rejoin and recalibrate.');
+    if (message.type === 'defineAnchors') {
+      if (player.id !== this.anchorOwner) throw new Error('Only the reference player can choose the two spots.');
+      if (message.anchorVersion !== this.anchorVersion) throw new Error('Alignment changed. Choose the spots again.');
+      const error = validateAnchors(message.points);
+      if (error) throw new Error(error);
+      this.clearAnchors(); this.anchors = copy(message.points);
+      player.calibrated = true;
+      this.pause('Two spots selected. Partner must match A and B; both verify alignment.');
+      return;
+    }
     if (message.type === 'calibrated') {
+      if (!this.anchors || message.anchorVersion !== this.anchorVersion) throw new Error('The shared spots changed. Match the current A and B again.');
       if (!Number.isFinite(message.error) || message.error < 0 || message.error > 0.08) throw new Error('Alignment check must be within 8 cm.');
       player.calibrated = true; player.ready = false; return;
     }
     if (message.type === 'pose') {
+      if (message.anchorVersion !== this.anchorVersion) return;
       if (!player.calibrated) return;
       if (!Number.isSafeInteger(message.seq) || message.seq <= player.seq) return;
       if (!validPose(message.pose)) throw new Error('Invalid tracking data.');
@@ -139,6 +162,6 @@ export class Room {
     }
   }
   snapshot(now = Date.now()) {
-    return { type: 'state', now, rev: this.rev, config: this.config, tick: this.tick, speed: this.speed, paused: this.paused, reason: this.reason, ball: this.ball, players: [...this.players.values()].map(({ id, hand, ready, calibrated, tracked, pose, lastPoseAt }) => ({ id, hand, ready, calibrated, tracked, pose, age: now - lastPoseAt })) };
+    return { type: 'state', now, rev: this.rev, config: this.config, anchors: this.anchors, anchorOwner: this.anchorOwner, anchorVersion: this.anchorVersion, tick: this.tick, speed: this.speed, paused: this.paused, reason: this.reason, ball: this.ball, players: [...this.players.values()].map(({ id, hand, ready, calibrated, tracked, pose, lastPoseAt }) => ({ id, hand, ready, calibrated, tracked, pose, age: now - lastPoseAt })) };
   }
 }
