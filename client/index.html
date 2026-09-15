@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111b1a">
+  <title>Racquetball VR · Court setup</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/js/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Racquetball VR home"><span class="brand-icon">R<span> /</span></span> RACQUETBALL <span class="muted">VR</span></a>
+    <span class="phase-tag">PHASE 01 <span> / COURT SETUP</span></span>
+  </header>
+  <main>
+    <section class="setup" aria-labelledby="page-title">
+      <p class="eyebrow"><span class="dot"></span> YOUR SPACE. YOUR COURT.</p>
+      <h1 id="page-title">Bring the court<br>closer to home.</h1>
+      <p class="intro">A regulation court, with room for your reality.<br>Choose your location and adjust its clear space.</p>
+      <div class="section-heading"><h2>Physical space</h2><span>FEET</span></div>
+      <form id="space-form">
+        <label>Location<select id="space-preset" name="preset"><option value="garage">Garage</option><option value="driveway">Driveway</option><option value="living">Living room</option><option value="custom">Custom space</option></select></label>
+        <div class="fields space-fields">
+          <label>Clear width (ft)<input id="space-width" name="width" type="number" min="4" max="200" step="any" required></label>
+          <label>Clear depth (ft)<input id="space-depth" name="depth" type="number" min="4" max="200" step="any" required></label>
+          <label>Overhead clearance (ft)<input id="space-height" name="height" type="number" min="1" max="100" step="any" required></label>
+          <label>Edge inset (ft)<input id="space-inset" name="inset" type="number" min="0" step="any" required></label>
+        </div>
+        <p class="field-help">Use the lowest obstruction for clearance. The editable 1 ft inset is a planning allowance; player and swing clearance still need checking.</p>
+        <button class="secondary" type="submit">Apply physical space <span>↗</span></button>
+        <p id="space-status" class="field-help" role="status"></p>
+      </form>
+      <div class="space-plan">
+        <svg id="space-diagram" viewBox="0 0 300 170" role="img" aria-labelledby="space-diagram-title"><title id="space-diagram-title">Top view of physical space and standing area</title><rect id="physical-outline"/><polygon id="standing-outline"/></svg>
+        <p><span class="plan-key physical-key"></span>Physical footprint <span class="plan-key standing-key"></span>Standing area</p>
+        <strong id="space-summary"></strong>
+      </div>
+      <div class="section-heading"><h2>Standing area</h2><span>METERS</span></div>
+      <form id="zone-form">
+        <div class="fields">
+          <label>Width <span class="input-wrap"><input id="width" name="width" type="number" min="1" max="6" step="any" required><span>m</span></span></label>
+          <label>Depth <span class="input-wrap"><input id="depth" name="depth" type="number" min="1" max="12" step="any" required><span>m</span></span></label>
+        </div>
+        <details>
+          <summary>Position & rotation</summary>
+          <div class="fields offsets">
+            <label>Center X <input id="x" name="x" type="number" step="0.01" required value="0"></label>
+            <label>Center Z <input id="z" name="z" type="number" step="0.01" required value="0.8"></label>
+            <label>Rotation (°) <input id="yaw" name="yaw" type="number" min="-180" max="180" step="1" required value="0"></label>
+          </div>
+          <p class="field-help">The physical footprint and court share a center in this preview. Negative Z faces the front wall.</p>
+        </details>
+        <button class="secondary" type="submit">Apply standing area <span>↗</span></button>
+        <p id="zone-status" class="field-help" role="status">Standing area must fit the physical footprint, inset, and virtual court.</p>
+      </form>
+      <div class="safety-note"><span class="note-icon">!</span><p><strong>Solo environment preview</strong>Shared alignment and player proximity alerts arrive in later phases. Keep the headset’s boundary enabled.</p></div>
+      <button id="enter-vr" class="primary" disabled>Checking headset… <span>↗</span></button>
+      <p id="xr-status" class="xr-status" role="status">Checking secure WebXR availability.</p>
+    </section>
+    <section class="preview" aria-label="Interactive court preview">
+      <div id="viewport"><div id="render-error" hidden role="alert"></div></div>
+      <div class="preview-header"><span><span class="dot"></span> COURT PREVIEW</span><button id="reset-view" type="button">Reset view ↺</button></div>
+      <div class="view-label"><span class="mint-line"></span> SAFE PLAY ZONE <strong id="zone-size">4.80 × 4.80 m</strong></div>
+      <div class="preview-bottom"><span>Drag to look around</span><span>01 / REGULATION COURT</span></div>
+    </section>
+  </main>
+  <footer><div><span class="footer-label">VIRTUAL COURT</span><strong>20′ × 40′ × 20′</strong><span>Regulation proportions</span></div><div><span class="footer-label">CONNECTION</span><strong id="server-status">Checking HTTPS</strong><span>Assets served on your LAN</span></div><div><span class="footer-label">HEADSET</span><strong>Meta Quest 2</strong><span>Open in Meta Quest Browser</span></div><span class="footer-mark">REAL SPACE. VIRTUAL GAME.</span></footer>
+</body>
+</html>
