@@ -13,3 +13,14 @@ select:focus-visible { outline:2px solid #bbed94; outline-offset:4px; }
 .standing-key { border-top:2px dashed #50ffd1; margin-left:8px; }
 .space-plan strong { display:block; text-align:center; color:#c3e4d4; font-size:11px; font-weight:400; }
 @media(min-width:701px) { .preview { align-self:start; position:sticky; top:25px; height:calc(100vh - 120px); max-height:850px; } }
+/* Shared sandbox controls. */
+.sandbox-panel { border:1px solid #75956b55; border-radius:6px; padding:18px; margin:0 0 28px; background:#17231c; }
+.sandbox-panel .primary { font-size:13px; padding:14px; }
+.sandbox-options { margin-top:16px; }
+.sandbox-options input { font-size:14px; padding:12px 8px; }
+.sandbox-panel .secondary { font-size:11px; padding:11px; }
+.speed-control { margin:18px 0; }
+.speed-control span { color:#c3e4d4; }
+input[type=range] { padding:0; accent-color:#c2ec9b; }
+.sound-toggle { display:flex; flex-direction:row; align-items:center; }
+.sound-toggle input { width:16px; accent-color:#c2ec9b; }

@@ -67,5 +67,5 @@ export function initializeSpaceControls(state, onChange) {
     zoneStatus.textContent = `Standing area applied. ${save()}`;
   });
   render();
-  spaceStatus.textContent = 'Full physical dimensions are saved independently of the regulation court. Overhead clearance is recorded; live height warnings are not active yet.';
+  spaceStatus.textContent = 'Full physical dimensions are saved independently of the regulation court. Calibrated headset play uses these dimensions for edge and overhead cues.';
 }

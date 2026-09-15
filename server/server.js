@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureCertificates, lanAddresses } from './certificates.js';
+import { attachMultiplayer } from './multiplayer.js';
 
 const clientRoot = fileURLToPath(new URL('../client/', import.meta.url));
 const threeRoot = fileURLToPath(new URL('./node_modules/three/build/', import.meta.url));
@@ -23,7 +24,7 @@ export async function handleRequest(req, res) {
     const pathname = decodeURIComponent((req.url || '/').split('?')[0]);
     if (pathname === '/api/health') {
       res.setHeader('Content-Type', 'application/json');
-      res.writeHead(200).end(req.method === 'HEAD' ? undefined : JSON.stringify({ ok: true, phase: 1, protocol: 'https' }));
+      res.writeHead(200).end(req.method === 'HEAD' ? undefined : JSON.stringify({ ok: true, phase: 'sandbox', protocol: 'https' }));
       return;
     }
     if (pathname.includes('\\') || pathname.includes('\0') || pathname.split('/').some(part => part.startsWith('.'))) {
@@ -53,7 +54,9 @@ export async function handleRequest(req, res) {
 }
 
 export async function createServer(options = {}) {
-  return https.createServer({ ...await ensureCertificates(options), minVersion: 'TLSv1.2' }, handleRequest);
+  const server = https.createServer({ ...await ensureCertificates(options), minVersion: 'TLSv1.2' }, handleRequest);
+  attachMultiplayer(server);
+  return server;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -62,7 +65,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const server = await createServer();
   server.on('error', error => { console.error(`Unable to start HTTPS server: ${error.message}`); process.exitCode = 1; });
   server.listen(port, '0.0.0.0', () => {
-    console.log(`\nRacquetball VR · Phase 1\n  https://localhost:${port}`);
+    console.log(`\nRacquetball VR · Shared sandbox\n  https://localhost:${port}`);
     for (const address of lanAddresses()) console.log(`  https://${address}:${port}`);
     console.log('\nOpen a LAN address in Quest Browser on the same Wi-Fi.\nSelf-signed TLS requires browser acceptance/trust. See README.md.');
   });

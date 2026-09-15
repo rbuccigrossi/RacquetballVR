@@ -46,7 +46,7 @@ export async function initializeXR({ xr, secure, renderer, button, status, onEnt
         onEnter();
         await renderer.xr.setSession(session);
         button.textContent = 'Exit VR';
-        report('VR active · solo court preview. Use the system menu to exit.');
+        report('VR active · follow the headset instructions. Use the system menu to exit.');
       }
     } catch (error) {
       if (session) { try { await session.end(); } catch { /* Already ended. */ } }

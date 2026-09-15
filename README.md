@@ -1,10 +1,10 @@
-# Racquetball VR — Phase 1
+# Racquetball VR — shared sandbox MVP
 
-A local HTTPS/WebXR court prototype for Meta Quest 2. This phase provides the visual court and configurable standing footprint. Multiplayer, controller input, calibration, ball physics, audio, and proximity alerts belong to Phases 2–5 and are not implemented yet. Use this phase as a **solo environment preview**.
+Two players share a local HTTPS/WebXR racquetball court. Both can spawn or hit the same ball at any time. There are no scores, turns, serve restrictions, or assigned player areas.
 
-## Run
+## Run and connect
 
-Requires **Node.js 22+**. From the project directory:
+Requires **Node.js 22+**:
 
 ```powershell
 cd server
@@ -12,61 +12,93 @@ npm ci
 npm start
 ```
 
-The server listens on all IPv4 interfaces on port 3000 and prints available LAN URLs. Open `https://<server-LAN-IP>:3000` on the headset, using the same Wi-Fi/LAN. All runtime scripts and generated textures are local; npm requires internet only for initial installation. No CDN, bundler, or cloud service is needed.
+Open the printed `https://<server-LAN-IP>:3000` address in Meta Quest Browser on **both headsets**, on the same LAN. All scripts, textures, sound synthesis, physics, and multiplayer traffic are local. Internet is needed only to install npm dependencies.
 
-On Windows, `./start.ps1` from the project root also starts the installed server, selecting Node 22+ or the Codex bundled runtime when available. The machine's pre-existing system Node 12 is too old. You can pass `-NodePath 'C:\path\to\node.exe'` explicitly.
+On this Windows machine, `./start.ps1` selects Node 22+ or the available Codex bundled runtime. The pre-existing system Node 12 is too old. An explicit executable can be passed with `-NodePath 'C:\path\to\node.exe'`.
 
-If the headset cannot reach the server, check the LAN address, guest-network/client isolation, and Windows Firewall permission for Node TCP port 3000 on your private network. No firewall or certificate trust settings are changed automatically.
+The server binds to all IPv4 interfaces. If connection fails, check the LAN IP, Wi-Fi client isolation, and private-network firewall access for Node TCP 3000. No firewall or system trust settings are changed automatically.
 
-### Self-signed HTTPS
+Self-signed RSA/SHA-256 certificates are generated in `server/certs`, reused for up to 90 days, and renewed when near expiry or missing a current LAN IP. They include localhost, loopback, and detected IPv4 LAN addresses. `LAN_IPS` can supply additional comma-separated addresses; `PORT` changes the listening port; `npm run certs` forces renewal. Resolve the certificate warning/trust on each headset. Never share `key.pem`; certificates and private keys are outside the public directory and ignored by Git.
 
-First startup generates an RSA/SHA-256 certificate in `server/certs`, valid for 90 days. Subject Alternative Names include localhost, loopback, and detected IPv4 LAN addresses. Certificates are reused, or renewed if near expiry or missing a current LAN IP. `LAN_IPS` can add comma-separated IPs before launch. `npm run certs` forces regeneration; `PORT` changes the port.
+## First two-headset session
 
-The private key stays outside the public asset directory and is ignored by Git. Never distribute it. On Windows, key access inherits the directory ACL; POSIX mode 0600 is requested where supported.
+1. **Choose the physical profile on the first headset before joining.** It becomes the shared room configuration. On the second headset, use the same LAN URL; its local profile does not override the joined room.
+2. **Prepare three floor marks:** facing your intended front wall, A is the rear-left corner of the measured physical footprint. B is exactly **1 meter (3 ft 3.37 in) to the right of A**. C is exactly **1 meter forward of A**. Make a right angle; C is not forward of B.
+3. Use a measured support to place the **center of the right controller grip 10 cm (3.94 in) above each mark**. Both players must use the same repeatable controller reference point. The support must not obscure controller tracking; remove it from the movement area before playing.
+4. Tap **Join shared sandbox**, then **Enter VR**, on each headset. Only two players may join. The first gets Player 1, the second Player 2.
+5. Follow the headset panel: sample A, then B, then C with the **right trigger**. After each press, hold the controller steady for half a second. Both players perform all three samples. B establishes direction; C verifies the transform independently.
+6. **Before swinging, verify each other's head and both hands at several locations across the footprint.** The controller samples must span 1 meter within 5 cm, be within 4 cm vertically, and the third-point error must be at most 8 cm. These are prototype acceptance thresholds, not a guarantee of safe physical alignment. Near-marker agreement does not prove agreement at the far side of the room.
+7. Both press **right grip** to mark ready. The ball remains paused until two calibrated players have fresh headset and both-controller tracking and have both marked ready.
+8. Press the **left trigger** to replace any existing ball with a new ball at the left hand. It immediately drops under gravity. Hit it with the right-hand racquet. Either player may spawn or hit, at any time during active play.
 
-Self-signed certificates are not trusted automatically. Review the certificate warning for your own server and accept it if Quest Browser offers that option. Certificate acceptance behavior differs across browser versions; it does **not** by itself prove WebXR works. If WebXR stays blocked, establish certificate trust on the device using its supported development workflow. The page checks `isSecureContext` and `isSessionSupported` and reports request failures. Do not disable browser security globally.
+Do not hold a physical racquet: the controller has a virtual racquet attached. The rendered racquet and hand share the controller's grip pose.
 
-## Court and standing footprint
+## Controls
 
-- Regulation proportions: **20 ft wide × 40 ft long × 20 ft high**, or 6.096 × 12.192 × 6.096 meters.
-- Polished procedural maple floor, off-white walls/ceiling, overhead fixtures, red service and short lines at 15 and 20 feet from the front wall, and service-box markings.
-- Editable physical-space profiles in feet: **Garage 15 × 20 × 7**, **Driveway 25 × 40 × 15**, **Living room 10 × 15 × 10** (width × depth × overhead clearance), plus Custom. Each profile retains its own physical measurements and standing rectangle in this browser. Garage is selected on first use.
-- Mint dashed standing outline with a translucent halo. A configurable edge inset starts at **1 ft on each side** as a planning allowance, not a validated player/swing safety margin. Applying physical measurements refits the standing rectangle to the smaller of the inset footprint and the regulation court's existing 10 cm edge clearance. The full driveway dimensions are preserved even though its width exceeds the court.
-- Physical measurements and the standing rectangle appear together in a top-down diagram. Overhead clearance records the lowest obstruction; it does not resize the virtual ceiling or trigger live alerts in this phase.
-- Standing width, depth (meters), X/Z center, and yaw remain editable. Apply validates the rotated rectangle against both the physical footprint minus inset and the court. Court dimensions remain fixed. Old standing settings migrate only if they fit the garage profile.
-- Coordinates: meters, +Y up, court center at `(0,0,0)`, front wall at Z = −6.096. Positive yaw follows Three.js rotation about +Y.
-- Drag the desktop preview to look around; Reset view restores the camera.
-- Enter VR explicitly requests `immersive-vr` with **required `local-floor`**. Physical tracking stays at 1:1 scale, without locomotion. Session exit restores the desktop camera.
+| Input | Action |
+|---|---|
+| Right trigger during alignment | Sample the next mark |
+| Opposite-hand trigger during active play | Replace the single ball at that hand |
+| Right grip **or A** | Mark ready when paused; pause when playing |
+| Left grip **or Y** | Clear the ball |
+| **X** | Cycle maximum ball speed through 4, 8, and 12 m/s |
+| **B** | Restart alignment and pause both players |
+| Browser Ball speed slider | Set shared maximum speed from 2–16 m/s |
+| Browser Racquet hand | Switch racquet/spawn hands; pauses until both mark ready |
+| Browser Positional sound | Mute/unmute locally |
+| Browser Nearby warning | Adjust local tracked-point warning distance, default 1.37 m |
+| Browser Leave sandbox | Free the player slot and clear/pause the shared ball |
 
-The footprint is a visual guide. It does not measure the garage, align headsets, enforce boundaries, or replace Quest's system boundary. Until calibration exists, its placement is relative to the headset's session reference space. Leave clearance from walls and obstacles and keep the system boundary enabled.
+Grip/A/X/Y/B commands keep the same physical controller assignments when racquet hands are switched. A ball spawn is a trigger press, not a repeated action while holding the trigger.
 
-### Requirements for multiple locations
+## Shared presence and feedback
 
-Physical dimensions, player movement areas, and ball-playing dimensions must remain separate. A larger physical profile must not be silently truncated to match the regulation scene. A smaller profile must not scale tracked movement. These settings do not yet select a compact or assisted ball mode, allocate two player areas, or establish that two-player swings fit in a location.
+- The opponent has a directionally visible head/visor, both tracked controller hands, and a racquet. A wireframe torso is **an approximation**, not tracked anatomy.
+- Opponent meshes remain visible through court geometry. Poses use the freshest received data; there is no long smoothing delay that would conceal movement. LAN transmission and rendering still introduce latency.
+- Nearby tracked points produce an orange head halo and hand/head color change, a headset message, and brief strong haptics where supported. There is no opaque flashing sphere and no forced division into player lanes.
+- Calibrated head and controller positions produce warnings near the physical inset, outside the standing outline, or within 20 cm of overhead clearance. These are cues, not collision barriers or full-body/swing tracking.
+- Missing or emulated headset/controller tracking, session visibility loss, stale network data, disconnection, and reference-space resets stop active play. Stale opponent avatars are hidden instead of displayed as current. Readiness is cleared; ordinary tracking recovery requires both players to mark ready again.
+- Reference-space reset/recenter, leaving VR, reconnecting, or changing physical locations requires fresh calibration. Dimensions are saved; calibration is not persisted. A network drop does not intentionally reposition the court while the headset is on.
+- Keep the headset's system boundary enabled. Verify alignment before each session. A software pause cannot stop a physical swing.
 
-In the shared-space phase, the host must share one selected profile and configuration version with both clients. Changing locations or physical layout invalidates calibration and player readiness. The clearance value must be used by future height warnings independently of the rendered 20 ft ceiling. Location switching requires a fresh alignment check; saved dimensions do not constitute saved physical alignment.
+## Locations and court
 
-## Architecture and audio execution plan
+Saved editable physical profiles (width × depth × lowest overhead clearance):
 
-`server/server.js` serves a restricted client directory over native HTTPS; Three.js is exposed through two allowlisted local module URLs. `certificates.js` owns LAN certificate generation. `client/js/config.js` holds dimensions and validation, `court.js` builds static geometry/materials, `safe-zone.js` rebuilds only when settings change, `xr.js` owns the session lifecycle, and `app.js` connects the UI and renderer.
+| Location | Feet |
+|---|---|
+| Garage | 15 × 20 × 7 |
+| Driveway | 25 × 40 × 15 |
+| Living room | 10 × 15 × 10 |
+| Custom | Editable |
 
-For Phase 4, `audio.js` will expose a `SpatialAudio` class:
+Physical measurements remain independent of the **20 × 40 × 20 ft** regulation court. The initial editable edge inset is **1 ft per side**, a planning allowance rather than validated player/swing clearance. The standing rectangle fits inside both the inset physical footprint and the court's existing 10 cm edge clearance. Full physical measurements are retained even when the driveway is wider than the virtual court.
 
-1. Create/resume one `AudioContext` during an explicit user gesture. Fetch and decode three locally served impact clips once into an AudioBuffer cache.
-2. Use a fixed pool of voices, each with `PannerNode → GainNode → master GainNode → destination`. Configure HRTF panning and inverse-distance attenuation in meters; recycle the oldest/quietest voice when the pool is full.
-3. Update `AudioListener` position, forward, and up from the **headset world pose**, using reusable vectors in the render loop. Use short AudioParam ramps to avoid abrupt changes.
-4. A collision callback calls `playImpact(kind, worldPosition, strength, eventId)`. Set the voice's panner at the contact point, attach a one-shot `AudioBufferSourceNode`, and play the cached clip. Source nodes are necessarily created per sound, while panners, gains, and buffers are reused.
-5. Deduplicate predicted/server-confirmed collision IDs, throttle repeated contacts, and stop/disconnect active source nodes on session end. Both collision points and the listener must use the same calibrated world coordinates.
+The physical footprint and court are centered together; the scene uses meters, +Y up, and front wall at Z = −6.096. Calibration maps physical mark A to the footprint's rear-left corner. Physical height controls overhead warnings, not the rendered court ceiling. Location controls are locked while joined; leave to edit them. The shared profile remains authoritative until the room empties, so both players should leave before selecting a different location.
 
-The Phase 1 render loop allocates no application vectors or geometry, caps desktop pixel ratio at 1.5, sets XR framebuffer scale to 1, and requests foveation 1. It avoids dynamic shadows and postprocessing. Actual headset frame pacing still needs measurement.
+**Ball collisions still use the regulation court.** This MVP does not add compact-court physics, return guidance, amplified movement, or teleportation. A return may leave the physically reachable area in smaller spaces; spawn a replacement instead of chasing it outside your clear area. These gameplay adaptations can be evaluated after trying the sandbox.
 
-## Phase gates
+## Physics, audio, and performance
 
-1. **Current:** HTTPS, court, configurable footprint, local-floor VR entry. Run automated checks and complete the physical headset checks below before advancing.
-2. WebSocket Player 1/2 assignment and tracked head/controller avatars.
-3. Manual calibration and shared-origin verification. **A single shared point determines translation, not yaw.** Add a shared facing direction (controller orientation held along a marked axis), or a second physical point, to align both coordinate frames. Validate independent measurements before enabling shared play; do not claim mathematically perfect alignment from one corner tap.
-4. Single server-authoritative ball spawn, local hit prediction, ball physics, distinct positional audio.
-5. 1.37 m cross-player tracked-point warnings, haptics, stale-tracking handling, and Quest profiling.
+- The server owns canonical ball state, accepted hit ordering, and spawn IDs. Either player can request a replacement; simultaneous requests resolve to one newest ball. Old ball IDs/revisions cannot apply stale hits.
+- Each client predicts a new ball and local racquet contact immediately, then reconciles with server state. Hit requests are checked against current ball/racquet proximity, recent tracked motion, speed limits, cooldown, and ball revision. Latency compensation is bounded to 120 ms; it is prototype plausibility checking, not competitive anti-cheat.
+- Shared physics runs at 120 Hz with swept time-of-impact against six court planes, gravity, inelastic bounces, and a maximum-speed setting. Racquet contacts use a relative ball/moving-disk sweep; fast rotations are approximated by frame samples. This is a lightweight model, without string deformation, spin, or full continuous rotational collision solving.
+- Head/controller poses are sampled every XR frame and sent at a capped rate of 45/s; the server publishes state around 30/s. Application queues are bounded and superseded outgoing poses are skipped. Tracking expires after 300 ms. Server stalls pause play rather than simulating a large catch-up interval.
+- Distinct **original synthesized** floor, wall, and racquet impacts are cached in one AudioContext. Twelve reusable HRTF PannerNode/GainNode voices provide distance attenuation. The listener follows calibrated headset position and orientation. Predicted racquet sound is deduplicated against its server confirmation. These sounds are not recordings; realistic recorded clips remain a future refinement.
+- Boundary dashes use two instanced draw calls. Pose vectors, scene meshes, and prediction scratch state are reused; network serialization, collision events, audio source creation, calibration, and UI updates still allocate. The renderer keeps the existing foveation, capped pixel ratio, static lighting, and no dynamic shadows/postprocessing.
+
+## Architecture
+
+| Module | Responsibility |
+|---|---|
+| `server/server.js`, `certificates.js` | Restricted local HTTPS asset delivery and certificates |
+| `server/multiplayer.js`, `room.js` | WebSocket sessions, two slots, readiness, authoritative state |
+| `client/js/network.js` | Same-origin WSS connection and freshness |
+| `client/js/calibration.js`, `math.js` | Stable samples, yaw/translation transform, third-marker check |
+| `client/js/sandbox.js` | XR tracking/input, prediction, avatars, warnings, lifecycle |
+| `client/js/physics.js` | Shared ball and racquet physics functions |
+| `client/js/models.js`, `audio.js` | Head/hands/racquet/HUD and spatial sound |
+| `client/js/spaces.js`, `spaces-ui.js` | Saved physical profiles and standing geometry |
 
 ## Verification
 
@@ -75,18 +107,17 @@ cd server
 npm test
 ```
 
-The Node tests cover regulation/standing-zone math, rotated-footprint rejection, LAN SANs/certificate reuse, verified TLS requests, local asset delivery, method/path restrictions, and mocked XR success/exit/reentry/denial/reference-space failure paths. A mocked session is not a hardware WebXR test.
+Node tests cover HTTPS/certificates, path restrictions, physical profiles, mocked XR entry/exit, independent calibration origins, noisy samples, ball/racquet sweeps, simultaneous spawns, hit revision checks, tracking failure, malformed packets, and two actual WSS clients.
 
-An optional desktop integration check is available at `server/test/browser-smoke.mjs`. With the server running and Playwright available, run `node test/browser-smoke.mjs` from `server`. Set `PLAYWRIGHT_MODULE` to an installed Playwright package path if needed and `BROWSER_CHANNEL=msedge` to use installed Edge. The isolated automated browser context accepts the development certificate; it does not change browser or system trust. The check covers WebGL 2 initialization, console errors, local-only asset requests, configuration persistence/validation, drag/reset controls, and mobile overflow, and saves screenshots in `artifacts/`.
+Optional browser tests require Playwright. Set `PLAYWRIGHT_MODULE` to an installed package path if necessary and `BROWSER_CHANNEL=msedge` to use installed Edge:
 
-**Physical Quest gate (pending until run on a headset):**
+```powershell
+node test/browser-smoke.mjs
+node test/browser-sandbox.mjs
+```
 
-- Open the printed HTTPS LAN URL on Quest 2; resolve certificate trust and confirm the page reports local HTTPS ready.
-- Enter VR and confirm immersive rendering with a floor-aligned `local-floor` reference space. Check floor height and 1:1 movement while staying clear of obstacles.
-- Verify the floor material, regulation room proportions, service/short lines, and visibility of the standing-zone dashes.
-- Exit, change width/depth/position/rotation, and reenter. Confirm the court stays fixed, the outline updates, and refresh preserves settings.
-- Exit and reenter again; check denied-permission recovery and observe sustained frame pacing on the headset.
+`browser-smoke.mjs` uses the running port-3000 server to verify rendering, local assets, profile controls, and responsive layout; screenshots go in `artifacts/`. `browser-sandbox.mjs` starts a separate ephemeral HTTPS server, runs production client logic with two synthetic XRFrame streams, and verifies controller-driven calibration, avatars, spawning, prediction/server acceptance, hand switching, audio listener/pool, speed, clearing, haptics, tracking recovery, and recenter invalidation. Test browsers accept their development certificates without altering global trust.
 
-No Phase 2 work should begin until these Phase 1 hardware checks pass.
+**Still requires physical Quest testing:** actual alignment across the space, controller/racquet grip orientation, simultaneous headset tracking, perceived network/hit latency, positional sound quality, haptic support, and sustained frame pacing. Begin with stationary avatar checks, then slow controlled hits. Automated synthetic-frame tests do not establish physical colocation accuracy or headset performance.
 
-API references: [Three.js WebXRManager](https://threejs.org/docs/pages/WebXRManager.html), [MDN requestSession](https://developer.mozilla.org/en-US/docs/Web/API/XRSystem/requestSession), [WebXR permissions and security](https://developer.mozilla.org/en-US/docs/Web/API/WebXR_Device_API/Permissions_and_security).
+References: [Three.js WebXRManager](https://threejs.org/docs/pages/WebXRManager.html), [WebXR reference spaces](https://www.w3.org/TR/webxr/#xrreferencespace-interface), [Web Audio spatialization](https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API/Web_audio_spatialization_basics).

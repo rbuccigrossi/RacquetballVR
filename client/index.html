@@ -12,13 +12,35 @@
 <body>
   <header class="topbar">
     <a class="brand" href="/" aria-label="Racquetball VR home"><span class="brand-icon">R<span> /</span></span> RACQUETBALL <span class="muted">VR</span></a>
-    <span class="phase-tag">PHASE 01 <span> / COURT SETUP</span></span>
+    <span class="phase-tag">SANDBOX <span> / SHARED COURT</span></span>
   </header>
   <main>
     <section class="setup" aria-labelledby="page-title">
       <p class="eyebrow"><span class="dot"></span> YOUR SPACE. YOUR COURT.</p>
       <h1 id="page-title">Bring the court<br>closer to home.</h1>
       <p class="intro">A regulation court, with room for your reality.<br>Choose your location and adjust its clear space.</p>
+      <section class="sandbox-panel" aria-labelledby="sandbox-title">
+        <div class="section-heading"><h2 id="sandbox-title">Play together</h2><span>2 PLAYERS · LAN</span></div>
+        <p class="field-help">First player to join shares their selected space. Join here before entering VR on each headset. Leave to edit location settings.</p>
+        <button id="join-room" class="primary" type="button">Join shared sandbox</button>
+        <p id="sandbox-status" class="field-help" role="status">One shared ball. No scores or assigned turns.</p>
+        <button id="enter-vr" class="primary" disabled>Checking headset… <span>↗</span></button>
+        <p id="xr-status" class="xr-status" role="status">Checking secure WebXR availability.</p>
+        <details class="alignment-guide" open>
+          <summary>Prepare three alignment marks</summary>
+          <p class="field-help">Facing the intended front wall, mark A at the rear-left corner of your physical footprint. Mark B exactly 1 meter right of A, and C exactly 1 meter forward of A. Use the same controller reference point at all three marks.</p>
+          <p class="field-help">Hold the center of the right controller grip 10 cm above each mark, using a measured support for repeatability. Press its trigger and hold still for half a second. Both players sample A, B, then C. Remove the support from the play area afterward.</p>
+          <p id="alignment-status" class="field-help" role="status">Join the sandbox, then enter VR to align.</p>
+        </details>
+        <div class="fields"><button id="ready-player" class="secondary" type="button" disabled>Mark ready / resume</button><button id="restart-alignment" class="secondary" type="button" disabled>Restart alignment</button></div>
+        <div class="fields sandbox-options">
+          <label>Racquet hand<select id="racquet-hand"><option value="right">Right hand</option><option value="left">Left hand</option></select></label>
+          <label>Nearby warning (meters)<input id="proximity-distance" type="number" min="0.2" max="3" step="0.05" value="1.37"></label>
+        </div>
+        <label class="speed-control">Ball speed <span id="speed-label">8 m/s maximum</span><input id="ball-speed" type="range" min="2" max="16" step="1" value="8" disabled></label>
+        <div class="fields"><button id="clear-ball" class="secondary" type="button" disabled>Clear ball</button><label class="sound-toggle"><input id="sound-enabled" type="checkbox" checked> Positional sound</label></div>
+        <p class="field-help">In VR: opposite-hand trigger = new ball; right grip/A = ready or pause; left grip/Y = clear; X = speed; B = restart alignment. Proximity, edge, and overhead cues warn without enforcing separate player zones.</p>
+      </section>
       <div class="section-heading"><h2>Physical space</h2><span>FEET</span></div>
       <form id="space-form">
         <label>Location<select id="space-preset" name="preset"><option value="garage">Garage</option><option value="driveway">Driveway</option><option value="living">Living room</option><option value="custom">Custom space</option></select></label>
@@ -55,15 +77,13 @@
         <button class="secondary" type="submit">Apply standing area <span>↗</span></button>
         <p id="zone-status" class="field-help" role="status">Standing area must fit the physical footprint, inset, and virtual court.</p>
       </form>
-      <div class="safety-note"><span class="note-icon">!</span><p><strong>Solo environment preview</strong>Shared alignment and player proximity alerts arrive in later phases. Keep the headset’s boundary enabled.</p></div>
-      <button id="enter-vr" class="primary" disabled>Checking headset… <span>↗</span></button>
-      <p id="xr-status" class="xr-status" role="status">Checking secure WebXR availability.</p>
+      <div class="safety-note"><span class="note-icon">!</span><p><strong>Verify alignment before swinging</strong>Compare your partner’s virtual head and hands with their real positions. Torso is approximate. Keep the headset boundary enabled. A paused ball cannot stop a physical swing.</p></div>
     </section>
     <section class="preview" aria-label="Interactive court preview">
       <div id="viewport"><div id="render-error" hidden role="alert"></div></div>
       <div class="preview-header"><span><span class="dot"></span> COURT PREVIEW</span><button id="reset-view" type="button">Reset view ↺</button></div>
       <div class="view-label"><span class="mint-line"></span> SAFE PLAY ZONE <strong id="zone-size">4.80 × 4.80 m</strong></div>
-      <div class="preview-bottom"><span>Drag to look around</span><span>01 / REGULATION COURT</span></div>
+      <div class="preview-bottom"><span>Drag to look around</span><span>SANDBOX / COURT</span></div>
     </section>
   </main>
   <footer><div><span class="footer-label">VIRTUAL COURT</span><strong>20′ × 40′ × 20′</strong><span>Regulation proportions</span></div><div><span class="footer-label">CONNECTION</span><strong id="server-status">Checking HTTPS</strong><span>Assets served on your LAN</span></div><div><span class="footer-label">HEADSET</span><strong>Meta Quest 2</strong><span>Open in Meta Quest Browser</span></div><span class="footer-mark">REAL SPACE. VIRTUAL GAME.</span></footer>

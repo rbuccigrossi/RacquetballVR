@@ -56,7 +56,7 @@ test('HTTPS serves only public local assets and uses a reusable LAN certificate'
     assert.ok(result.body.length > 100, path);
   }
   const health = await request('/api/health');
-  assert.equal(JSON.parse(health.body).phase, 1);
+  assert.equal(JSON.parse(health.body).phase, 'sandbox');
   assert.equal(health.headers['permissions-policy'], 'xr-spatial-tracking=(self)');
   assert.equal((await request('/', 'HEAD')).body, '');
   assert.equal((await request('/', 'POST')).status, 405);

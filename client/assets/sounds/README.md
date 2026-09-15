@@ -1,3 +1,3 @@
-# Phase 4 audio assets
+# Sandbox audio
 
-No sound clips are included or played in Phase 1. Phase 4 will add locally served recordings for wall, hardwood floor, and racquet impacts. Use owned or appropriately licensed recordings; synthesized placeholder effects should not be described as realistic recordings.
+`client/js/audio.js` synthesizes and caches three original impact buffers for wood floor, wall, and racquet contacts. They play through pooled HRTF positional voices and follow the calibrated headset listener. There are no downloaded or recorded sound clips in this build. This directory is reserved for future owned or appropriately licensed recordings.

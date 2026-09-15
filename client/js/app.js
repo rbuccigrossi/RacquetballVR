@@ -5,6 +5,7 @@ import { initializeSpaceControls } from './spaces-ui.js';
 import { createCourt, createEnvironment } from './court.js';
 import { SafeZone } from './safe-zone.js';
 import { initializeXR } from './xr.js';
+import { Sandbox } from './sandbox.js';
 
 const viewport = document.querySelector('#viewport');
 const vrButton = document.querySelector('#enter-vr');
@@ -44,6 +45,7 @@ try {
   createEnvironment(renderer, scene);
   const safeZone = new SafeZone(scene, configuration);
   initializeSpaceControls(spaces, zone => safeZone.update(zone));
+  const sandbox = new Sandbox({ scene, camera, rig, renderer, safeZone, spaces });
 
   let yaw = 0;
   let pitch = -0.4;
@@ -87,8 +89,7 @@ try {
     onEnter() { dragging = false; camera.position.set(0, 0, 0); camera.rotation.set(0, 0, 0); camera.updateMatrixWorld(); },
     onExit() { resetView(); resize(); }
   });
-  // No allocations, shadows, postprocessing, or network work in the Phase 1 loop.
-  renderer.setAnimationLoop(() => { renderer.render(scene, camera); });
+  renderer.setAnimationLoop((time, frame) => { sandbox.update(time, frame); renderer.render(scene, camera); });
   renderer.domElement.addEventListener('webglcontextlost', event => {
     event.preventDefault();
     vrButton.disabled = true;
