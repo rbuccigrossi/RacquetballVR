@@ -28,16 +28,16 @@
         <label class="sound-toggle"><input id="calibration-passthrough" type="checkbox" checked> See the physical room during setup and pauses</label>
         <button id="enter-vr" class="primary" disabled>Checking headset… <span>↗</span></button>
         <p id="xr-status" class="xr-status" role="status">Checking secure WebXR availability.</p>
-        <p id="solo-guide" class="field-help" hidden>Solo practice: enter VR from the center of your clear space, facing forward. No A/B calibration needed. Press right grip to start, then left trigger to drop a ball. Tap or hold B to recenter the court.</p>
+        <p id="solo-guide" class="field-help" hidden>Solo practice: enter VR from the center of your clear space, facing forward. No A/B calibration needed. Move either controller to the START button on the sign and squeeze the trigger, then use the opposite-hand trigger to drop a ball. Tap or hold B to recenter the court.</p>
         <details id="shared-alignment-guide" class="alignment-guide" open>
           <summary>Choose two shared physical spots</summary>
           <p class="field-help">Player 1 enters VR at the center of the clear space, facing the intended front wall. That entry position stays the play area center, including when retrying calibration. Choose spot A on the floor or furniture: rest your right controller against it and press trigger. Repeat at a distinct spot B to the side. The spots can be at different heights; no measuring is required.</p>
           <p class="field-help">Tell your partner which spots are A and B. They touch those same physical spots in order with their right controller, matching its placement and direction. Hold still briefly after each press. Suggested floating markers start around 3 feet high; they move to your chosen spots. Your partner’s labels are approximate until alignment is finished.</p>
-          <p class="field-help">Passthrough shows the real room during setup when available. Keep objects fixed until both players finish. After alignment, the mint floor outline shows the play area and the cross marks its center, including while paused. Check each other’s hands before both press right grip to begin. Player proximity alerts are currently off.</p>
+          <p class="field-help">Passthrough shows the real room during setup when available. Keep objects fixed until both players finish. After alignment, the mint floor outline shows the play area and the cross marks its center, including while paused. Check each other’s hands before either player presses START on the sign. Player proximity alerts are currently off.</p>
           <p class="field-help">Stay in VR: tap B to repeat your A/B alignment using only the right controller. Player 1 can stand at the new center facing forward and hold B for one second to move the room for both players. The standard Meta/Oculus recenter also works when the browser reports it; if it cannot preserve alignment, follow A/B again inside VR. Temporary controller tracking loss does not pause play.</p>
         </details>
         <p id="alignment-status" class="field-help" role="status">Join the sandbox, then enter VR to align.</p>
-        <div class="fields"><button id="ready-player" class="secondary" type="button" disabled>Mark ready / resume</button><button id="restart-alignment" class="secondary" type="button" disabled>Restart alignment</button></div>
+        <div class="fields"><button id="ready-player" class="secondary" type="button" disabled>Start / pause (browser)</button><button id="restart-alignment" class="secondary" type="button" disabled>Restart alignment</button></div>
         <div class="fields sandbox-options">
           <label>Racquet hand<select id="racquet-hand"><option value="right">Right hand</option><option value="left">Left hand</option></select></label>
           <label>Player proximity: off<input id="proximity-distance" type="number" min="0.2" max="3" step="0.05" value="1.37" disabled aria-label="Player proximity alerts disabled for physics testing"></label>
@@ -47,7 +47,7 @@
         <label class="speed-control">Ball time <span id="ball-time-label">1.0× ball time</span><input id="ball-time-scale" type="range" min="0.4" max="1" step="0.1" value="1" disabled></label>
         <p class="field-help">Slows the ball’s flight, gravity, and bounces while your headset and racquet swing remain in real time.</p>
         <div class="fields"><button id="clear-ball" class="secondary" type="button" disabled>Clear ball</button><label class="sound-toggle"><input id="sound-enabled" type="checkbox" checked> Positional sound</label></div>
-        <p class="field-help">In VR: opposite-hand trigger = new ball; right grip/A = ready or pause; left grip/Y = clear; X = show or hide instructions; tap B = repeat alignment; hold B = recenter room (Player 1). Player proximity alerts are off for physics testing. Edge and overhead cues remain enabled.</p>
+        <p class="field-help">In VR: move either controller to the world-space START sign and squeeze the trigger; opposite-hand trigger = new ball while playing; right grip/A = pause or resume; left grip/Y = clear; X = hide or show the sign; tap B = repeat alignment; hold B = recenter room (Player 1). Player proximity alerts are off for physics testing. Edge and overhead cues remain enabled.</p>
       </section>
       <div class="section-heading"><h2>Physical space</h2><span>FEET</span></div>
       <form id="space-form">

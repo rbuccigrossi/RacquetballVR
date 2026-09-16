@@ -1,7 +1,7 @@
 import * as THREE from '/vendor/three.module.js';
 import { Network } from './network.js';
 import { Calibration, centerAlignment } from './calibration.js';
-import { Avatar, createRacquet, HeadsetHUD, CalibrationMarkers } from './models.js';
+import { Avatar, createRacquet, InstructionSign, CalibrationMarkers } from './models.js';
 import { SpatialAudio } from './audio.js';
 import { BALL_RADIUS, STEP, racquetPose, predictBall, createRacquetSweep, HIT_COOLDOWN_MS } from './physics.js';
 import { FEET, PLAYER_PROXIMITY_ENABLED } from './config.js';
@@ -42,7 +42,7 @@ export class Sandbox {
     });
     this.forward = [0, 0, -1]; this.up = [0, 1, 0];
     this.lastFrame = 0; this.lastSend = 0; this.lastHit = 0; this.hitId = 0; this.poseValid = false;
-    this.lastHUD = 0; this.lastHaptic = 0; this.ball = null; this.pendingHit = null; this.localPaused = true; this.hand = 'right'; this.hudVisible = true;
+    this.lastHaptic = 0; this.ball = null; this.pendingHit = null; this.localPaused = true; this.hand = 'right';
     this.remote = new Avatar(scene);
     this.localHands = { left: new THREE.Group(), right: new THREE.Group() };
     for (const hand of Object.values(this.localHands)) {
@@ -52,7 +52,16 @@ export class Sandbox {
     this.racquet = createRacquet(); this.localHands.right.add(this.racquet);
     this.ballMesh = new THREE.Mesh(new THREE.SphereGeometry(BALL_RADIUS, 16, 12), new THREE.MeshStandardMaterial({ color: 0x2386ff, roughness: 0.35, emissive: 0x082e66 }));
     this.ballMesh.visible = false; scene.add(this.ballMesh);
-    this.hud = new HeadsetHUD(camera);
+    // A short translucent capsule bridges the ball's last rendered position
+    // to its current position. It is visual-only and never participates in
+    // collision tests.
+    this.streakMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.003, 1, 8, 1, true), new THREE.MeshBasicMaterial({ color: 0x54a8ff, transparent: true, opacity: 0.42, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.streakMesh.visible = false; this.streakMesh.renderOrder = 1; scene.add(this.streakMesh);
+    this.streakAxis = new THREE.Vector3(0, 1, 0);
+    this.streakPrevious = new THREE.Vector3(); this.streakCurrent = new THREE.Vector3(); this.streakDirection = new THREE.Vector3(); this.streakMidpoint = new THREE.Vector3();
+    this.streakBallId = null; this.streakValid = false;
+    this.sign = new InstructionSign(scene);
+    this.signHidden = false; this.lastPaused = true;
     this.markers = new CalibrationMarkers(scene);
     this.background = scene.background; this.court = scene.getObjectByName('regulation-court');
     this.anchorVersion = -1; this.seedAlignment = null; this.pendingAnchors = null;
@@ -62,9 +71,45 @@ export class Sandbox {
     renderer.xr.addEventListener('sessionend', () => this.endSession());
     document.querySelector('#enter-vr').addEventListener('click', () => this.audio.unlock().catch(() => {}));
   }
-  toggleHud() {
-    this.hudVisible = !this.hudVisible;
-    this.hud.plane.visible = this.hudVisible;
+  toggleSign() {
+    this.signHidden = !this.signHidden;
+  }
+  startButtonPressed(hand) {
+    if (!this.tracked[hand]) return false;
+    const alignment = this.calibration?.alignment || this.seedAlignment || identity;
+    transformPoint(this.world[hand].p, this.raw[hand].p, alignment);
+    return this.sign.containsButton(this.world[hand].p);
+  }
+  updateSign(state) {
+    const paused = Boolean(state?.paused);
+    if (paused && !this.lastPaused) this.signHidden = false;
+    this.lastPaused = paused;
+    const complete = Boolean(this.calibration?.complete);
+    const allCalibrated = state?.mode === 'solo'
+      ? complete
+      : Boolean(state?.players?.length >= 2 && state.players.every(player => player.calibrated));
+    const visible = Boolean(state && (paused || !complete) && !this.signHidden);
+    const enabled = Boolean(visible && complete && allCalibrated && this.network.fresh && state.players.every(player => player.tracked));
+    this.sign.set({ visible, enabled, mode: state?.mode, reason: state?.reason, playerCount: state?.players?.length || 0, calibrated: allCalibrated });
+  }
+  updateBallStreak() {
+    if (!this.ballMesh.visible || !this.ball) {
+      this.streakMesh.visible = false; this.streakValid = false; this.streakBallId = null; return;
+    }
+    this.streakCurrent.fromArray(this.ball.p);
+    if (this.streakBallId !== this.ball.id || !this.streakValid) {
+      this.streakPrevious.copy(this.streakCurrent); this.streakBallId = this.ball.id; this.streakValid = true; this.streakMesh.visible = false; return;
+    }
+    this.streakDirection.subVectors(this.streakCurrent, this.streakPrevious);
+    const length = this.streakDirection.length();
+    if (length < 0.002) this.streakMesh.visible = false;
+    else {
+      this.streakMidpoint.addVectors(this.streakPrevious, this.streakCurrent).multiplyScalar(0.5);
+      this.streakMesh.position.copy(this.streakMidpoint);
+      this.streakMesh.quaternion.setFromUnitVectors(this.streakAxis, this.streakDirection.normalize());
+      this.streakMesh.scale.set(1, length, 1); this.streakMesh.visible = true;
+    }
+    this.streakPrevious.copy(this.streakCurrent);
   }
   bindUI() {
     this.proximityDistance = 1.37;
@@ -98,7 +143,7 @@ export class Sandbox {
   }
   renderMode() {
     const solo = this.modeSelect.value === 'solo';
-    document.querySelector('#join-help').textContent = solo ? 'Choose your physical space, start solo practice, then enter VR from the room center. Press right grip to start hitting.' : 'First player to join shares their selected space. Join here before entering VR on each headset. Leave to edit location settings.';
+    document.querySelector('#join-help').textContent = solo ? 'Choose your physical space, start solo practice, then enter VR from the room center. Touch START on the sign with either controller to begin.' : 'First player to join shares their selected space. Join here before entering VR on each headset. Leave to edit location settings.';
     document.querySelector('#shared-alignment-guide').hidden = solo;
     document.querySelector('#solo-guide').hidden = !solo;
     document.querySelector('#restart-alignment').textContent = solo ? 'Recenter court' : 'Restart alignment';
@@ -155,7 +200,7 @@ export class Sandbox {
       document.querySelector('#ball-time-scale').value = timeScale;
       document.querySelector('#ball-time-label').textContent = `${timeScale.toFixed(1)}× ball time`;
       const me = state.players.find(player => player.id === this.network.id);
-      document.querySelector('#ready-player').textContent = state.paused ? (me?.ready ? 'Ready · waiting for partner' : 'Mark ready / resume') : 'Pause ball';
+      document.querySelector('#ready-player').textContent = state.paused ? (me?.ready ? 'Ready · waiting for partner' : 'Start / resume (browser)') : 'Pause ball';
       this.updateUI();
     });
     this.network.addEventListener('roomShift', event => {
@@ -177,7 +222,7 @@ export class Sandbox {
     });
     this.network.addEventListener('disconnected', () => {
       this.localPaused = true; this.ball = null; this.ballMesh.visible = false; this.pendingHit = null; this.pendingSpawn = null;
-      this.remote.group.visible = false; this.audio.stop(); this.hasPaddle = false; this.configRev = -1;
+      this.remote.group.visible = false; this.streakMesh.visible = false; this.streakValid = false; this.streakBallId = null; this.audio.stop(); this.hasPaddle = false; this.configRev = -1;
       // Keep the court stationary if the socket drops while the headset is on.
       // A new join still requires a new calibration before tracking is shared.
       if (this.calibration) { this.calibration.stage = 0; this.calibration.collecting = false; }
@@ -191,7 +236,7 @@ export class Sandbox {
   startSession() {
     const session = this.renderer.xr.getSession();
     this.isPassthrough = session.environmentBlendMode === 'alpha-blend' || session.environmentBlendMode === 'additive';
-    this.hud.plane.visible = this.hudVisible;
+    this.signHidden = false; this.lastPaused = true; this.sign.group.visible = true;
     this.seedAlignment = null; this.recenterPending = false;
     this.restartCalibration();
     this.reference = this.renderer.xr.getReferenceSpace();
@@ -205,8 +250,8 @@ export class Sandbox {
     this.network.send({ type: 'invalidate' });
     this.reference?.removeEventListener('reset', this.resetListener);
     this.calibration = null; this.seedAlignment = null; this.pendingAnchors = null;
-    this.hud.plane.visible = false; this.ballMesh.visible = false; this.remote.group.visible = false;
-    this.hudVisible = true;
+    this.sign.group.visible = false; this.signHidden = false; this.lastPaused = true;
+    this.ballMesh.visible = false; this.streakMesh.visible = false; this.streakValid = false; this.streakBallId = null; this.remote.group.visible = false;
     this.localPaused = true; this.poseValid = false; this.ball = null; this.hasPaddle = false;
     this.rig.position.set(0, 0, 0); this.rig.rotation.set(0, 0, 0);
     for (const hand of Object.values(this.localHands)) hand.visible = false;
@@ -335,9 +380,10 @@ export class Sandbox {
         if (down && !previous[i]) {
           if (!this.calibration?.complete) {
             if (hand === 'right' && i === 0 && this.tracked.right && this.seedAlignment) this.calibration?.startSample(now);
-          } else if (hand === 'right' && (i === 1 || i === 4)) this.readyOrPause();
+          } else if (i === 0 && this.network.state?.paused && this.sign.enabled && this.startButtonPressed(hand)) this.network.send({ type: 'start' });
+          else if (hand === 'right' && (i === 1 || i === 4)) this.readyOrPause();
           else if (hand === 'left' && (i === 1 || i === 5)) this.network.send({ type: 'reset' });
-          else if (hand === 'left' && i === 4) this.toggleHud();
+          else if (hand === 'left' && i === 4) this.toggleSign();
           else if (hand !== this.hand && i === 0 && this.tracked[hand] && !this.localPaused && this.network.fresh) {
             // Replace immediately with one provisional ball, then reconcile its ID.
             transformPoint(this.world[hand].p, this.raw[hand].p, this.calibration.alignment);
@@ -356,8 +402,7 @@ export class Sandbox {
     const gap = this.lastFrame && now - this.lastFrame > 200;
     this.lastFrame = now;
     const state = this.network.state;
-    if (!frame || !session) { this.remote.group.visible = false; this.ballMesh.visible = false; return; }
-    this.hud.plane.visible = this.hudVisible;
+    if (!frame || !session) { this.remote.group.visible = false; this.ballMesh.visible = false; this.streakMesh.visible = false; this.streakValid = false; this.streakBallId = null; this.sign.group.visible = false; return; }
     if (gap) this.hasPaddle = false;
     this.poseValid = this.readTracking(frame, session);
     this.prepareSolo();
@@ -432,15 +477,7 @@ export class Sandbox {
     this.hasPaddle = Boolean(active && this.tracked[this.hand] && this.tracked.head);
     this.ballMesh.visible = Boolean(this.ball && this.calibration?.complete && this.network.fresh);
     if (this.ballMesh.visible) this.ballMesh.position.fromArray(this.ball.p);
-    if (now - this.lastHUD > 100) {
-      this.lastHUD = now;
-      let text;
-      if (!this.network.id) text = 'Leave VR and join the shared sandbox on the setup page first.';
-      else if (!this.network.fresh) text = 'Connection stale. Ball paused. Check your LAN connection.';
-      else if (!this.calibration?.complete) text = this.calibration?.instruction || 'Waiting for shared room settings.';
-      else text = `${warning || state.reason} ${state.paused ? `Mint outline: play area. RIGHT grip: ${state.mode === 'solo' ? 'start practice' : 'ready'}. ` : `${this.hand === 'right' ? 'LEFT' : 'RIGHT'} trigger: new ball. RIGHT grip: pause. `}LEFT grip: clear. ${state.mode === 'solo' ? 'B: recenter.' : 'Tap B: align. Hold B: center (P1).'} ${state.speed} m/s · ${(state.timeScale ?? 1).toFixed(1)}× ball time. P${this.network.id}.`;
-      if (now < this.errorUntil) text = this.error;
-      this.hud.set(text, Boolean(warning || !this.network.fresh));
-    }
+    this.updateBallStreak();
+    this.updateSign(state);
   }
 }

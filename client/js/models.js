@@ -1,5 +1,6 @@
 import * as THREE from '/vendor/three.module.js';
 import { RACQUET_MOUNT } from './physics.js';
+import { FEET } from './config.js';
 import { transformPoint } from './math.js';
 
 const material = color => new THREE.MeshBasicMaterial({ color, depthTest: false, toneMapped: false });
@@ -64,26 +65,49 @@ export class Avatar {
   }
 }
 
-export class HeadsetHUD {
-  constructor(camera) {
-    this.canvas = document.createElement('canvas'); this.canvas.width = 1200; this.canvas.height = 320;
+// World-space help and start control. The sign is anchored to the virtual
+// court, so it stays still while the player looks around or moves.
+export class InstructionSign {
+  constructor(scene) {
+    this.group = new THREE.Group();
+    this.group.position.set(0, 4 * FEET, -3 * FEET);
+    this.width = 1.5; this.height = 1.05;
+    this.canvas = document.createElement('canvas'); this.canvas.width = 1200; this.canvas.height = 840;
     this.texture = new THREE.CanvasTexture(this.canvas); this.texture.colorSpace = THREE.SRGBColorSpace;
-    this.plane = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.293), new THREE.MeshBasicMaterial({ map: this.texture, transparent: true, depthTest: false, toneMapped: false }));
-    this.plane.position.set(0, -0.37, -1.15); this.plane.renderOrder = 100; camera.add(this.plane); this.plane.visible = false;
+    this.panel = new THREE.Mesh(new THREE.PlaneGeometry(this.width, this.height), new THREE.MeshBasicMaterial({ map: this.texture, transparent: true, depthTest: false, toneMapped: false }));
+    this.panel.renderOrder = 90; this.group.add(this.panel); this.group.visible = false; scene.add(this.group);
+    this.button = { x: 0, y: -0.28, width: 0.96, height: 0.2 };
+    this.enabled = false; this.previous = '';
   }
-  set(text, warning = false) {
-    if (this.previous === text && this.warning === warning) return;
-    this.previous = text; this.warning = warning;
+  containsButton(point) {
+    const x = point[0] - this.group.position.x, y = point[1] - this.group.position.y, z = point[2] - this.group.position.z;
+    return Math.abs(x - this.button.x) <= this.button.width / 2 && Math.abs(y - this.button.y) <= this.button.height / 2 && Math.abs(z) <= 0.28;
+  }
+  set({ visible, enabled, mode = 'shared', reason = '', playerCount = 0, calibrated = false }) {
+    this.group.visible = Boolean(visible);
+    this.enabled = Boolean(enabled);
+    const key = `${visible}|${enabled}|${mode}|${reason}|${playerCount}|${calibrated}`;
+    if (this.previous === key) return;
+    this.previous = key;
     const ctx = this.canvas.getContext('2d');
-    ctx.clearRect(0, 0, 1200, 320); ctx.fillStyle = warning ? '#521e18ee' : '#102720eb'; ctx.fillRect(0, 0, 1200, 320);
-    ctx.strokeStyle = warning ? '#ff9075' : '#8cddb6'; ctx.lineWidth = 4; ctx.strokeRect(3, 3, 1194, 314);
-    ctx.fillStyle = '#f3fff7'; ctx.font = '30px sans-serif';
-    const words = text.split(/\s+/); let line = '', y = 45;
-    for (const word of words) {
-      if (ctx.measureText(`${line}${word} `).width > 1120) { ctx.fillText(line, 30, y); y += 39; line = ''; }
-      line += `${word} `;
-    }
-    ctx.fillText(line, 30, y); this.texture.needsUpdate = true;
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.fillStyle = '#102720f2'; ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.strokeStyle = '#8cddb6'; ctx.lineWidth = 10; ctx.strokeRect(5, 5, this.canvas.width - 10, this.canvas.height - 10);
+    ctx.textAlign = 'center'; ctx.fillStyle = '#f3fff7'; ctx.font = 'bold 54px sans-serif'; ctx.fillText('RACQUETBALL SANDBOX', 600, 92);
+    ctx.font = '34px sans-serif';
+    const lines = mode === 'solo'
+      ? ['Practice mode', 'Press START to begin.', 'Either controller can press the button.', 'Opposite-hand trigger: spawn a ball.', 'Grip/A: pause or resume.']
+      : calibrated && playerCount >= 2
+        ? ['Two-player mode', 'Both players are calibrated.', 'Either player can press START.', 'Opposite-hand trigger: spawn a ball.', 'Grip/A: pause or resume.']
+        : ['Two-player mode', 'Match both calibration spots first.', 'START unlocks after both players finish.', 'Keep the sign and play area in view.', 'Grip/A: pause or resume.'];
+    lines.forEach((line, i) => ctx.fillText(line, 600, 190 + i * 54));
+    ctx.fillStyle = enabled ? '#2fbd82' : '#52635e';
+    const left = 216, top = 590, width = 768, height = 146;
+    ctx.fillRect(left, top, width, height);
+    ctx.strokeStyle = enabled ? '#c5ffe0' : '#87948e'; ctx.lineWidth = 6; ctx.strokeRect(left, top, width, height);
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 58px sans-serif'; ctx.fillText(enabled ? 'START' : 'CALIBRATE FIRST', 600, 683);
+    if (reason && !enabled) { ctx.fillStyle = '#d6e7df'; ctx.font = '26px sans-serif'; ctx.fillText(reason, 600, 790); }
+    this.texture.needsUpdate = true;
   }
 }
 

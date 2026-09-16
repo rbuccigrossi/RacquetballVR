@@ -135,6 +135,13 @@ export class Room {
       player.pose = copy(message.pose); player.lastPoseAt = now; player.seq = message.seq; player.tracked = Object.values(player.pose).some(Boolean);
       return;
     }
+    if (message.type === 'start') {
+      if (!this.healthy(now)) throw new Error(this.mode === 'solo' ? 'Enter VR and wait for the court to be ready.' : 'Both players must be aligned and connected to start.');
+      for (const participant of this.players.values()) participant.ready = true;
+      this.paused = false;
+      this.reason = this.mode === 'solo' ? 'Solo practice.' : 'Free play · either player can spawn or hit.';
+      return;
+    }
     if (message.type === 'ready') {
       if (!this.healthy(now)) throw new Error(this.mode === 'solo' ? 'Enter VR and wait for the court to be ready.' : 'Both players must be aligned and connected to mark ready.');
       player.ready = true;

@@ -76,10 +76,10 @@ export class Calibration {
   }
   get complete() { return this.stage === 2; }
   get instruction() {
-    if (this.solo) return this.complete ? 'Solo court ready. RIGHT grip: start or pause. Opposite-hand trigger: new ball. B: recenter.' : 'Solo practice. Enter VR at your room center; no A/B calibration needed.';
+    if (this.solo) return this.complete ? 'Solo court ready. Touch START on the sign with either controller. Opposite-hand trigger: new ball. B: recenter.' : 'Solo practice. Enter VR at your room center; no A/B calibration needed.';
     if (this.error) return this.error;
     if (this.collecting) return 'Hold the RIGHT controller still…';
-    if (this.complete) return 'Aligned. Check your partner’s real head and hands, then RIGHT grip to mark ready. Tap B to repeat A/B; hold B to recenter (P1).';
+    if (this.complete) return 'Aligned. Check your partner’s real head and hands, then touch START on the sign. Tap B to repeat A/B; hold B to recenter (P1).';
     if (this.defining) return this.stage === 0
       ? 'Choose spot A on the floor or furniture. Rest your RIGHT controller against it and press trigger.'
       : 'Choose a different stationary spot B to the side. Rest your RIGHT controller against it and press trigger.';

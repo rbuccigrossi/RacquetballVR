@@ -58,7 +58,7 @@ try {
         getViewerPose: () => window.sim.lost ? null : ({ transform: raw.head, emulatedPosition: false }),
         getPose: space => window.sim.controllersLost || window.sim.missing === space.hand ? null : ({ transform: raw[space.hand], emulatedPosition: false })
       };
-      window.sim = { sandbox, position, sources, reference, frame, session, pulses: 0, lost: false, controllersLost: index === 0,
+      window.sim = { sandbox, position, sources, reference, frame, session, get yaw() { return yaw; }, get offset() { return offset; }, pulses: 0, lost: false, controllersLost: index === 0,
         start() { sandbox.startSession(); this.timer = setInterval(() => sandbox.update(performance.now(), frame), 16); },
         resetOrigin(delta, known = true) {
           const next = composeAlignment({ yaw, offset }, delta); yaw = next.yaw; offset = next.offset;
@@ -152,6 +152,7 @@ try {
   await pages[1].waitForFunction(() => window.sim.sandbox.network.state.timeScale === 1);
   const physicalPoints = [[-0.5, 0.9, -0.5], [0.6, 1.1, -0.3]];
   assert.ok(await pages[0].evaluate(() => window.sim.sandbox.markers.group.visible && window.sim.sandbox.scene.background === null && !window.sim.sandbox.court.visible));
+  assert.ok(await pages[0].evaluate(() => window.sim.sandbox.sign.group.visible && !window.sim.sandbox.sign.enabled));
   assert.ok(await pages[0].evaluate(() => window.sim.sandbox.safeZone.group.visible));
   assert.equal(await pages[1].evaluate(() => window.sim.sandbox.safeZone.group.visible), false);
   for (const page of pages) {
@@ -195,11 +196,30 @@ try {
   }
   await pages[1].waitForFunction(() => window.sim.sandbox.network.state.ball?.id === 3 && window.sim.sandbox.network.state.ball.revision > 0);
   assert.ok(await pages[0].evaluate(() => window.sim.sandbox.hitId > 0));
-  assert.equal(await pages[1].evaluate(() => window.sim.sandbox.hud.plane.visible), true);
-  await tap(pages[1], 'left', 4);
-  assert.equal(await pages[1].evaluate(() => window.sim.sandbox.hud.plane.visible), false);
-  await tap(pages[1], 'left', 4);
-  assert.equal(await pages[1].evaluate(() => window.sim.sandbox.hud.plane.visible), true);
+  await pages[0].waitForTimeout(40);
+  assert.ok(await pages[0].evaluate(() => window.sim.sandbox.streakMesh.visible));
+  assert.equal(await pages[1].evaluate(() => window.sim.sandbox.sign.group.visible), false);
+  await tap(pages[0], 'right', 1);
+  await pages[0].waitForFunction(() => window.sim.sandbox.network.state.paused);
+  await pages[0].waitForFunction(() => window.sim.sandbox.sign.group.visible);
+  assert.equal(await pages[1].evaluate(() => window.sim.sandbox.sign.group.visible), true);
+  // Either controller can press the world-space START button once both users
+  // are calibrated. The synthetic controller touches the sign's button face.
+  for (const page of pages) await page.evaluate(() => {
+    const sandbox = window.sim.sandbox, alignment = sandbox.calibration.alignment, target = sandbox.sign.group.position, targetY = target.y + sandbox.sign.button.y;
+    const c = Math.cos(alignment.yaw), s = Math.sin(alignment.yaw);
+    const dx = target.x - alignment.offset[0], dz = target.z - alignment.offset[2];
+    const raw = [c * dx - s * dz, targetY - alignment.offset[1], s * dx + c * dz];
+    const physical = [window.sim.offset[0] + Math.cos(window.sim.yaw) * raw[0] + Math.sin(window.sim.yaw) * raw[2], raw[1] + window.sim.offset[1], window.sim.offset[2] - Math.sin(window.sim.yaw) * raw[0] + Math.cos(window.sim.yaw) * raw[2]];
+    window.sim.position('left', physical); window.sim.position('right', physical);
+  });
+  await pages[0].waitForTimeout(50);
+  await tap(pages[0], 'left', 0);
+  await pages[0].waitForFunction(() => !window.sim.sandbox.network.state.paused);
+  await tap(pages[0], 'right', 1);
+  await pages[0].waitForFunction(() => window.sim.sandbox.network.state.paused && window.sim.sandbox.sign.group.visible);
+  await tap(pages[1], 'right', 0);
+  await pages[0].waitForFunction(() => !window.sim.sandbox.network.state.paused);
 
   await pages[0].locator('#racquet-hand').selectOption('left');
   await pages[1].waitForFunction(() => window.sim.sandbox.remote.racquet.parent === window.sim.sandbox.remote.left && window.sim.sandbox.network.state.paused);
@@ -282,7 +302,7 @@ try {
   assert.ok(await pages[1].evaluate(() => window.sim.sandbox.calibration.complete));
   await pages[0].evaluate(() => window.sim.resetOrigin({ yaw: 0.1, offset: [0.3, 0, -0.1] }, false));
   for (const page of pages) await page.waitForFunction(() => !window.sim.sandbox.network.state.anchors && window.sim.sandbox.network.state.players.every(p => !p.calibrated) && window.sim.sandbox.calibration.stage === 0);
-  console.log('PASS: two production clients: one-controller calibration, partial/all-pose loss without pausing, automatic avatar recovery, suspension/resume without recalibration, system recenter with origin transforms, shared center through hold B, in-VR A/B fallback for unknown reset transforms, tap-B retry, spawning/hits, HUD toggle, audio and disabled proximity cues.');
+  console.log('PASS: two production clients: one-controller calibration, partial/all-pose loss without pausing, automatic avatar recovery, suspension/resume without recalibration, system recenter with origin transforms, shared center through hold B, in-VR A/B fallback for unknown reset transforms, tap-B retry, spawning/hits, world-space sign/start control, audio and disabled proximity cues.');
   }
   for (const page of pages) await page.evaluate(() => { clearInterval(window.sim.timer); window.sim.sandbox.network.leave(); });
   assert.deepEqual(errors, []);

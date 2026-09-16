@@ -75,6 +75,13 @@ test('ball time scale slows flight while preserving the real-time tick rate', ()
   assert.throws(() => send('a', { type: 'timeScale', value: 1.1 }), /0.4–1/);
 });
 
+test('a healthy player can start the shared session with one start action', () => {
+  const { room, send } = prepared();
+  send('b', { type: 'start' });
+  assert.equal(room.paused, false);
+  assert.ok([...room.players.values()].every(player => player.ready));
+});
+
 test('arbitrary anchors at different heights align independent origins and an unsampled room point', () => {
   const points = [...targets, [1.5, 1.7, 2]];
   for (const yaw of [-2.1, 0.6]) {

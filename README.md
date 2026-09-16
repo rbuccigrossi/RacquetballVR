@@ -8,8 +8,8 @@ Two players share a local HTTPS/WebXR racquetball court. Both can spawn or hit t
 
 1. Select your physical space and choose **Solo practice** under Play mode.
 2. Click **Start solo practice**, stand at the center facing forward, and **Enter VR**.
-3. Press **right grip** to start. Press **left trigger** to drop a ball and hit it with the right racquet. No A/B calibration or second headset is needed.
-4. Right grip pauses/resumes; left grip clears the ball; X shows or hides the in-headset instructions. Use the browser speed slider to change the cap. Tap or hold B to recenter at your current position/facing. Hand switching works as in shared play.
+3. In VR, move either controller to the world-space **START** sign and squeeze the trigger. Press the opposite-hand trigger to drop a ball and hit it with the right racquet. No A/B calibration or second headset is needed.
+4. Right grip/A pauses or resumes; left grip/Y clears the ball; X hides or shows the sign. Use the browser speed slider to change the cap. Tap or hold B to recenter at your current position/facing. Hand switching works as in shared play.
 
 Temporary controller loss does not pause practice. System resets recover inside VR without A/B samples. The server still runs all ball physics so this tests the same behavior as shared play. Only one solo session or one shared room runs on this server at a time. When ready for two players, leave solo practice, choose **Two players**, and join with both headsets for normal A/B alignment. Switching modes does not reuse solo alignment for shared play.
 
@@ -39,7 +39,7 @@ Self-signed RSA/SHA-256 certificates are generated in `server/certs`, reused for
 4. The reference player chooses **A anywhere on the floor or stationary furniture**, rests their right controller against it, and presses the **right trigger**. Hold still briefly while it samples. Repeat at **B**, another distinct spot to the side. Different heights are fine; no fixed distance or height needs measuring. Wider horizontal separation improves direction accuracy. If the points are too close or vertically stacked, the headset asks for a farther spot B.
 5. Tell your partner exactly which physical spots are A and B. Your partner touches those same spots in that order, using the **same part of the right controller and matching its direction**, and presses right trigger at each. The app samples the tracked grip center, so repeatable controller placement matters. Keep the reference objects stationary until both finish. Suggested A/B spheres begin around 3 feet high; the first player's spheres move to the chosen spots. The partner's floating labels are **approximate until aligned**: use the physical objects as the reference.
 6. **Before swinging, verify each other's head and both hands at several locations across the footprint.** The two-point fit rejects endpoint errors above 8 cm and horizontal baselines shorter than 40 cm. These are prototype acceptance thresholds, not a guarantee of physical alignment. The two samples calculate translation and yaw; they are not an independent alignment check. Incorrect spots with similar spacing can still pass. Press B to restart if the real and virtual positions disagree.
-7. Find the **mint floor outline and center cross**, which remain visible over passthrough after alignment and while paused. Both press **right grip** to mark ready. Both players must be calibrated and sending session updates; missing controllers do not block readiness. There is no player-distance requirement to start.
+7. Find the **mint floor outline, center cross, and START sign**, which remain visible over passthrough after alignment and while paused. Both players must be calibrated before the sign's START button unlocks. Either player can touch START with either controller; one press starts the shared session once both players are tracked. There is no player-distance requirement to start.
 8. Press the **left trigger** to replace any existing ball with a new ball at the left hand. It immediately drops under gravity. Hit it with the right-hand racquet. Either player may spawn or hit, at any time during active play.
 
 Do not hold a physical racquet: the controller has a virtual racquet attached. With the controller held flat pointing forward, the racquet tip points away from you and its front face points left. The visual mesh and collision surface use the same grip-space mount, including on your partner's avatar.
@@ -51,10 +51,11 @@ Passthrough uses a floor-based `immersive-ar` session when the browser supports 
 | Input | Action |
 |---|---|
 | Right trigger during alignment | Choose or match physical spot A, then B |
+| Either controller trigger on the world-space START sign | Start or resume the session when paused; the button unlocks after calibration |
 | Opposite-hand trigger during active play | Replace the single ball at that hand |
-| Right grip **or A** | Mark ready when paused; pause when playing |
+| Right grip **or A** | Pause when playing; also remains a setup shortcut |
 | Left grip **or Y** | Clear the ball |
-| **X** | Show or hide the in-headset instruction panel |
+| **X** | Hide or show the world-space instruction sign |
 | Tap **B** | Retry your A/B alignment inside VR; pauses the ball, keeps your partner's alignment |
 | Hold **B** for 1 second (Player 1) | Recenter the shared room at your current position/facing; preserves both alignments and clears the ball |
 | Hold Meta/Oculus button | System recenter; see behavior below |
@@ -77,6 +78,8 @@ The system Meta/Oculus recenter is handled through WebXR's reference-space `rese
 
 - The opponent has a directionally visible head/visor, both tracked controller hands, and a racquet. A wireframe torso is **an approximation**, not tracked anatomy.
 - Opponent meshes remain visible through court geometry. Poses use the freshest received data; there is no long smoothing delay that would conceal movement. LAN transmission and rendering still introduce latency.
+- The ball has a translucent motion streak from its previous rendered position to its current position. The streak is visual-only and resets when a ball is replaced.
+- Setup and pause help lives on a stationary sign three feet in front of the court center and four feet above the floor. Its START button is disabled until calibration is complete and accepts either controller.
 - **Player proximity detection is temporarily disabled**: no nearby-player halo, color change, message, or haptics. Head, hands, and racquet tracking remain visible. The implementation is retained behind `PLAYER_PROXIMITY_ENABLED` in `client/js/config.js` for later re-enabling.
 - Calibrated head and controller positions produce warnings near the physical inset, outside the standing outline, or within 20 cm of overhead clearance. These are cues, not collision barriers or full-body/swing tracking.
 - Each head/hand pose is independently available or missing. Missing or emulated poses hide only those avatar parts (torso follows head availability). The shared ball, readiness, and calibration continue during temporary tracking loss, including when all poses are unavailable but XR frames/session updates continue. Recovery is automatic. An unavailable spawning hand cannot spawn; an unavailable racquet cannot hit. Recovered racquets start a fresh movement sample so reacquisition does not count as a swing.
@@ -137,7 +140,7 @@ The ball time slider scales gravity, flight distance, and bounce timing on the a
 | `server/multiplayer.js`, `room.js` | WebSocket sessions, two slots, readiness, authoritative state |
 | `client/js/network.js` | Same-origin WSS connection and freshness |
 | `client/js/calibration.js`, `math.js` | Stable two-point samples, yaw/translation transform, pair consistency check |
-| `client/js/sandbox.js` | XR tracking/input, prediction, avatars, warnings, lifecycle |
+| `client/js/sandbox.js` | XR tracking/input, prediction, avatars, stationary sign, warnings, lifecycle |
 | `client/js/physics.js` | Shared ball and racquet physics functions |
 | `client/js/models.js`, `audio.js` | Head/hands/racquet/HUD and spatial sound |
 | `client/js/spaces.js`, `spaces-ui.js` | Saved physical profiles and standing geometry |
