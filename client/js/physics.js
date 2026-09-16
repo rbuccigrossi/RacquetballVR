@@ -11,6 +11,9 @@ export const MAX_BALL_SPEED = 85;
 export const MAX_RACQUET_SPEED = 60;
 export const HIT_COOLDOWN_MS = 50;
 export const SPEED_PRESETS = [8, 20, 40, MAX_BALL_SPEED];
+export const BALL_TIME_SCALE_MIN = 0.4;
+export const BALL_TIME_SCALE_MAX = 1;
+export const BALL_TIME_SCALE_PRESETS = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1];
 export const RACQUET_RADIUS = 0.155;
 // Model +Y (tip) becomes grip -Z (forward); model +Z (front face)
 // becomes grip -X (left). Shared by local/remote meshes and server physics.
@@ -89,8 +92,12 @@ function interpolateRacquet(out, a, b, t) {
   for (let i = 0; i < 3; i++) out.normal[i] = length > 1e-8 ? out.normal[i] / length : b.normal[i];
 }
 
-export function predictBall(ball, dt, maxSpeed, previous, current, sweep) {
-  const steps = Math.max(1, Math.ceil(dt / STEP));
+export function predictBall(ball, dt, maxSpeed, previous, current, sweep, timeScale = 1) {
+  // dt is wall-clock time so racquet motion remains real-time. Only the
+  // ball's simulated clock is scaled for slow-motion practice.
+  const scale = Number.isFinite(timeScale) ? Math.max(BALL_TIME_SCALE_MIN, Math.min(BALL_TIME_SCALE_MAX, timeScale)) : 1;
+  const simulatedDt = dt * scale;
+  const steps = Math.max(1, Math.ceil(simulatedDt / STEP));
   if (sweep) {
     sweep.hit = false;
     for (let i = 0; i < 3; i++) sweep.velocity[i] = (current.center[i] - previous.center[i]) / dt;
@@ -101,7 +108,7 @@ export function predictBall(ball, dt, maxSpeed, previous, current, sweep) {
       interpolateRacquet(sweep.previous, previous, current, i / steps);
       interpolateRacquet(sweep.current, previous, current, (i + 1) / steps);
     }
-    stepBall(ball, dt / steps, maxSpeed, undefined, sweep);
+    stepBall(ball, simulatedDt / steps, maxSpeed, undefined, sweep);
   }
 }
 

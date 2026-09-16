@@ -59,6 +59,7 @@ Passthrough uses a floor-based `immersive-ar` session when the browser supports 
 | Hold **B** for 1 second (Player 1) | Recenter the shared room at your current position/facing; preserves both alignments and clears the ball |
 | Hold Meta/Oculus button | System recenter; see behavior below |
 | Browser Maximum ball speed slider | Set shared speed ceiling from 2–85 m/s; default 85 |
+| Browser Ball time slider | Scale ball flight, gravity, and bounces from 0.4× to 1.0×; default 1.0×. Tracking and swings stay real-time |
 | Browser Racquet hand | Switch racquet/spawn hands; pauses until both mark ready |
 | Browser Positional sound | Mute/unmute locally |
 | Browser Player proximity | Disabled during physics/playability testing |
@@ -118,12 +119,15 @@ The physical footprint and court are centered together; the scene uses meters, +
 | Racquet effective impact mass | 0.170 kg |
 | Racquet-ball restitution | 0.72 |
 | Maximum ball speed | 85 m/s by default; lower practice caps available |
+| Ball time scale | 1.0× by default; adjustable from 0.4× to 1.0× |
 
 The ball dimensions/mass and the 68–72-inch rebound from a 100-inch drop follow [USA Racquetball's ball specification, rule 2.2](https://assets.contentstack.io/v3/assets/blteb7d012fc7ebef7f/blt3872fce6b9efc1a5/68ae385c981e96747729f351/USAR_Rulebook_%28New_Rule_C.4%29.pdf). A restitution of 0.84 gives an ideal height ratio of 0.7056; the simulated drop test also passes that range. Applying this value to every surface/speed is a modeling approximation, not an official wall coefficient.
 
 Racquet contact uses the normal impulse `J = -(1 + e) * relativeNormalVelocity / (1 / ballMass + 1 / racquetMass)`. Separating contacts receive no impulse; tangential ball velocity is preserved. The finite-mass model accounts for recoil during the impulse, but the rendered racquet remains attached to the tracked hand. Its effective mass and restitution are tuning assumptions: a held racquet also depends on grip, arm, inertia, and impact location. For example, a 10 m/s ball hitting a stationary racquet rebounds at about 3.92 m/s in this model; a racquet moving normally at 10 m/s sends a stationary ball away at about 13.92 m/s.
 
 The speed ceiling never accelerates a gentle shot. There is no artificial swing multiplier or minimum outgoing speed. Air drag, spin, string deformation, and off-center rotational recoil are not modeled yet. The new values are a physically motivated baseline to assess on the headset, not a claim of measured professional-shot accuracy.
+
+The ball time slider scales gravity, flight distance, and bounce timing on the authoritative server and client prediction. Head/controller tracking and racquet swing velocity continue on wall-clock time, so a real-time swing can meet a slower-moving ball.
 
 ## Architecture
 

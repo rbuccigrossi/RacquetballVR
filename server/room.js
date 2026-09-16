@@ -1,5 +1,5 @@
 import { validateSpace, validateStandingZone, centerStandingZone } from '../client/js/spaces.js';
-import { BALL_RADIUS, STEP, stepBall, racquetPose, hitVelocity, MAX_BALL_SPEED, MAX_RACQUET_SPEED, HIT_COOLDOWN_MS } from '../client/js/physics.js';
+import { BALL_RADIUS, STEP, stepBall, racquetPose, hitVelocity, MAX_BALL_SPEED, MAX_RACQUET_SPEED, HIT_COOLDOWN_MS, BALL_TIME_SCALE_MIN, BALL_TIME_SCALE_MAX } from '../client/js/physics.js';
 import { distance, dot, transformPoint, transformQuaternion } from '../client/js/math.js';
 import { validateAnchors } from '../client/js/calibration.js';
 
@@ -24,6 +24,7 @@ export class Room {
     this.ball = null;
     this.ballId = 0;
     this.speed = MAX_BALL_SPEED;
+    this.timeScale = 1;
     this.flightHistory = Array.from({ length: 64 }, () => ({ p: [0, 0, 0], v: [0, 0, 0], duration: 0, at: -Infinity }));
     this.flightIndex = 0;
     this.paused = true;
@@ -44,6 +45,7 @@ export class Room {
       this.mode = mode;
       this.rev++;
       this.ball = null;
+      this.timeScale = 1;
     }
     const id = this.players.size && [...this.players.values()][0].id === 1 ? 2 : 1;
     if (!this.players.size) { this.anchorOwner = id; this.clearAnchors(); }
@@ -143,6 +145,12 @@ export class Room {
       if (!Number.isFinite(message.value) || message.value < 2 || message.value > MAX_BALL_SPEED) throw new Error(`Ball speed must be 2–${MAX_BALL_SPEED} m/s.`);
       this.speed = message.value; return;
     }
+    if (message.type === 'timeScale') {
+      const value = message.value;
+      const normalized = Math.round(value * 10) / 10;
+      if (!Number.isFinite(value) || value < BALL_TIME_SCALE_MIN || value > BALL_TIME_SCALE_MAX || Math.abs(value - normalized) > 1e-4) throw new Error(`Ball time scale must use 0.1 steps from ${BALL_TIME_SCALE_MIN}–${BALL_TIME_SCALE_MAX}.`);
+      this.timeScale = normalized; return;
+    }
     if (message.type === 'hand') {
       if (!['left', 'right'].includes(message.value)) throw new Error('Invalid racquet hand.');
       player.hand = message.value; this.pause(this.mode === 'solo' ? 'Hand assignment changed. RIGHT grip to resume.' : 'Hand assignment changed. Both mark ready.'); return;
@@ -201,7 +209,7 @@ export class Room {
     for (const segment of this.flightHistory) if (segment.id === ball.id && segment.revision === ball.revision && now - segment.at <= 120) check(segment.p, segment.v, segment.duration);
     // The predicting client can also be a few frames ahead of the server.
     const predicted = { p: [...ball.p], v: [...ball.v] };
-    for (let i = 0; i < 15; i++) stepBall(predicted, STEP, this.speed, undefined, undefined, check);
+    for (let i = 0; i < 15; i++) stepBall(predicted, STEP * this.timeScale, this.speed, undefined, undefined, check);
     return incoming;
   }
   update(now = Date.now(), steps = 2) {
@@ -213,7 +221,8 @@ export class Room {
     }
     if (!this.paused && !this.healthy(now)) this.pause(this.mode === 'solo' ? 'Waiting for your VR session. RIGHT grip to resume.' : 'Waiting for both players and fresh tracking.');
     if (!this.paused) for (let step = 0; step < steps; step++) {
-      stepBall(this.ball, STEP, this.speed, (kind, p, strength) => this.broadcast({ type: 'impact', id: ++this.eventId, kind, p: [...p], strength }), undefined, (p, v, duration) => {
+      const simulationStep = STEP * this.timeScale;
+      stepBall(this.ball, simulationStep, this.speed, (kind, p, strength) => this.broadcast({ type: 'impact', id: ++this.eventId, kind, p: [...p], strength }), undefined, (p, v, duration) => {
         const segment = this.flightHistory[this.flightIndex++ % this.flightHistory.length];
         for (let i = 0; i < 3; i++) { segment.p[i] = p[i]; segment.v[i] = v[i]; }
         segment.id = this.ball.id; segment.revision = this.ball.revision;
@@ -224,6 +233,6 @@ export class Room {
   }
   snapshot(now = Date.now()) {
     // Mode is authoritative; solo cannot silently admit a second headset.
-    return { type: 'state', mode: this.mode, now, rev: this.rev, config: this.config, anchors: this.anchors, anchorOwner: this.anchorOwner, anchorVersion: this.anchorVersion, tick: this.tick, speed: this.speed, paused: this.paused, reason: this.reason, ball: this.ball, players: [...this.players.values()].map(({ id, hand, ready, calibrated, tracked, pose, lastPoseAt }) => ({ id, hand, ready, calibrated, tracked, pose, age: now - lastPoseAt })) };
+    return { type: 'state', mode: this.mode, now, rev: this.rev, config: this.config, anchors: this.anchors, anchorOwner: this.anchorOwner, anchorVersion: this.anchorVersion, tick: this.tick, speed: this.speed, timeScale: this.timeScale, paused: this.paused, reason: this.reason, ball: this.ball, players: [...this.players.values()].map(({ id, hand, ready, calibrated, tracked, pose, lastPoseAt }) => ({ id, hand, ready, calibrated, tracked, pose, age: now - lastPoseAt })) };
   }
 }

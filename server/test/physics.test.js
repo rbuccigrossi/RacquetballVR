@@ -64,6 +64,12 @@ test('wall and racquet events resolve in order, including a wall return within o
   assert.ok(ball.p[0] <= COURT.width / 2 - BALL_RADIUS);
 });
 
+test('time-scaled prediction slows ball travel without changing its wall-clock frame input', () => {
+  const ball = { p: [0, 2, 0], v: [10, 0, 0] };
+  predictBall(ball, 0.1, MAX_BALL_SPEED, null, null, null, 0.4);
+  close(ball.p[0], 0.4, 1e-6);
+});
+
 test('85 m/s long simulation stays inside the court with bounded speed', () => {
   const ball = { p: [0, 2, 0], v: [50, 40, 55] };
   for (let i = 0; i < 5000; i++) {

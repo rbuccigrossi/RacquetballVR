@@ -138,6 +138,18 @@ try {
     assert.equal(await page.evaluate(() => window.sim.sandbox.network.state.paused), true);
     console.log('PASS: solo browser: no A/B, one-player ready/spawn/predicted hit accepted by server, pause/resume, controller loss, in-VR recenter/reset, return to shared mode requires calibration.');
   } else {
+  await pages[0].evaluate(() => {
+    const control = document.querySelector('#ball-time-scale');
+    control.value = '0.4'; control.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await pages[0].waitForFunction(() => window.sim.sandbox.network.state.timeScale === 0.4);
+  await pages[1].waitForFunction(() => window.sim.sandbox.network.state.timeScale === 0.4);
+  await pages[0].evaluate(() => {
+    const control = document.querySelector('#ball-time-scale');
+    control.value = '1'; control.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await pages[0].waitForFunction(() => window.sim.sandbox.network.state.timeScale === 1);
+  await pages[1].waitForFunction(() => window.sim.sandbox.network.state.timeScale === 1);
   const physicalPoints = [[-0.5, 0.9, -0.5], [0.6, 1.1, -0.3]];
   assert.ok(await pages[0].evaluate(() => window.sim.sandbox.markers.group.visible && window.sim.sandbox.scene.background === null && !window.sim.sandbox.court.visible));
   assert.ok(await pages[0].evaluate(() => window.sim.sandbox.safeZone.group.visible));

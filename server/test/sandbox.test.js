@@ -62,6 +62,19 @@ function prepared() {
   return { room, events, send: (id, message, time = 1000) => room.handle(id, { rev: room.rev, anchorVersion: room.anchorVersion, ...message }, time) };
 }
 
+test('ball time scale slows flight while preserving the real-time tick rate', () => {
+  const { room, send } = prepared();
+  send('a', { type: 'timeScale', value: 0.4 });
+  assert.equal(room.snapshot().timeScale, 0.4);
+  send('a', { type: 'spawn' });
+  room.ball.p = [0, 2, 0]; room.ball.v = [10, 0, 0];
+  room.update(1000, 10);
+  assert.ok(Math.abs(room.ball.p[0] - 10 * STEP * 10 * 0.4) < 1e-6);
+  assert.throws(() => send('a', { type: 'timeScale', value: 0.45 }), /0.1 steps/);
+  assert.throws(() => send('a', { type: 'timeScale', value: 0.3 }), /0.4–1/);
+  assert.throws(() => send('a', { type: 'timeScale', value: 1.1 }), /0.4–1/);
+});
+
 test('arbitrary anchors at different heights align independent origins and an unsampled room point', () => {
   const points = [...targets, [1.5, 1.7, 2]];
   for (const yaw of [-2.1, 0.6]) {

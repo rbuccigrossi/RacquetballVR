@@ -89,6 +89,7 @@ export class Sandbox {
     document.querySelector('#ready-player').addEventListener('click', () => this.readyOrPause());
     document.querySelector('#clear-ball').addEventListener('click', () => this.network.send({ type: 'reset' }));
     document.querySelector('#ball-speed').addEventListener('change', event => this.network.send({ type: 'speed', value: Number(event.target.value) }));
+    document.querySelector('#ball-time-scale').addEventListener('change', event => this.network.send({ type: 'timeScale', value: Number(event.target.value) }));
     document.querySelector('#racquet-hand').addEventListener('change', event => {
       this.hand = event.target.value; this.localHands[this.hand].add(this.racquet); this.hasPaddle = false;
       if (this.network.id !== null) this.network.send({ type: 'hand', value: this.hand });
@@ -117,7 +118,7 @@ export class Sandbox {
       this.joinButton.textContent = `Leave sandbox · Player ${this.network.id}`;
       this.modeSelect.disabled = true;
       for (const input of document.querySelectorAll('#space-form input, #space-form select, #space-form button, #zone-form input, #zone-form button')) input.disabled = true;
-      for (const id of ['ready-player', 'clear-ball', 'restart-alignment', 'ball-speed']) document.getElementById(id).disabled = false;
+      for (const id of ['ready-player', 'clear-ball', 'restart-alignment', 'ball-speed', 'ball-time-scale']) document.getElementById(id).disabled = false;
     });
     this.network.addEventListener('state', event => {
       const state = event.detail;
@@ -150,6 +151,9 @@ export class Sandbox {
       }
       document.querySelector('#ball-speed').value = state.speed;
       document.querySelector('#speed-label').textContent = `${state.speed} m/s maximum`;
+      const timeScale = Number.isFinite(state.timeScale) ? state.timeScale : 1;
+      document.querySelector('#ball-time-scale').value = timeScale;
+      document.querySelector('#ball-time-label').textContent = `${timeScale.toFixed(1)}× ball time`;
       const me = state.players.find(player => player.id === this.network.id);
       document.querySelector('#ready-player').textContent = state.paused ? (me?.ready ? 'Ready · waiting for partner' : 'Mark ready / resume') : 'Pause ball';
       this.updateUI();
@@ -180,7 +184,7 @@ export class Sandbox {
       this.modeSelect.disabled = false; this.renderMode();
       this.status.textContent = this.modeSelect.value === 'solo' ? 'Disconnected. Start solo practice to reconnect.' : 'Disconnected. Rejoin and recalibrate before playing.';
       for (const input of document.querySelectorAll('#space-form input, #space-form select, #space-form button, #zone-form input, #zone-form button')) input.disabled = false;
-      for (const id of ['ready-player', 'clear-ball', 'restart-alignment', 'ball-speed']) document.getElementById(id).disabled = true;
+      for (const id of ['ready-player', 'clear-ball', 'restart-alignment', 'ball-speed', 'ball-time-scale']) document.getElementById(id).disabled = true;
     });
     this.network.addEventListener('error', event => { this.error = event.detail.message; this.errorUntil = performance.now() + 4000; this.status.textContent = this.error; });
   }
@@ -422,7 +426,7 @@ export class Sandbox {
     if (this.ball && active) {
       const canHit = this.tracked[this.hand] && this.tracked.head && this.ball.id > 0 && this.hasPaddle && now - this.lastHit > HIT_COOLDOWN_MS && !this.pendingHit;
       this.hitTime = now;
-      predictBall(this.ball, dt, state.speed, this.previousPaddle, this.currentPaddle, canHit ? this.racquetSweep : null);
+      predictBall(this.ball, dt, state.speed, this.previousPaddle, this.currentPaddle, canHit ? this.racquetSweep : null, state.timeScale ?? 1);
     }
     for (let i = 0; i < 3; i++) { this.previousPaddle.center[i] = this.currentPaddle.center[i]; this.previousPaddle.normal[i] = this.currentPaddle.normal[i]; }
     this.hasPaddle = Boolean(active && this.tracked[this.hand] && this.tracked.head);
@@ -434,7 +438,7 @@ export class Sandbox {
       if (!this.network.id) text = 'Leave VR and join the shared sandbox on the setup page first.';
       else if (!this.network.fresh) text = 'Connection stale. Ball paused. Check your LAN connection.';
       else if (!this.calibration?.complete) text = this.calibration?.instruction || 'Waiting for shared room settings.';
-      else text = `${warning || state.reason} ${state.paused ? `Mint outline: play area. RIGHT grip: ${state.mode === 'solo' ? 'start practice' : 'ready'}. ` : `${this.hand === 'right' ? 'LEFT' : 'RIGHT'} trigger: new ball. RIGHT grip: pause. `}LEFT grip: clear. ${state.mode === 'solo' ? 'B: recenter.' : 'Tap B: align. Hold B: center (P1).'} ${state.speed} m/s. P${this.network.id}.`;
+      else text = `${warning || state.reason} ${state.paused ? `Mint outline: play area. RIGHT grip: ${state.mode === 'solo' ? 'start practice' : 'ready'}. ` : `${this.hand === 'right' ? 'LEFT' : 'RIGHT'} trigger: new ball. RIGHT grip: pause. `}LEFT grip: clear. ${state.mode === 'solo' ? 'B: recenter.' : 'Tap B: align. Hold B: center (P1).'} ${state.speed} m/s · ${(state.timeScale ?? 1).toFixed(1)}× ball time. P${this.network.id}.`;
       if (now < this.errorUntil) text = this.error;
       this.hud.set(text, Boolean(warning || !this.network.fresh));
     }
