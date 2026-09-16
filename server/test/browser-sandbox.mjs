@@ -183,8 +183,11 @@ try {
   }
   await pages[1].waitForFunction(() => window.sim.sandbox.network.state.ball?.id === 3 && window.sim.sandbox.network.state.ball.revision > 0);
   assert.ok(await pages[0].evaluate(() => window.sim.sandbox.hitId > 0));
+  assert.equal(await pages[1].evaluate(() => window.sim.sandbox.hud.plane.visible), true);
   await tap(pages[1], 'left', 4);
-  await pages[0].waitForFunction(() => window.sim.sandbox.network.state.speed === 8);
+  assert.equal(await pages[1].evaluate(() => window.sim.sandbox.hud.plane.visible), false);
+  await tap(pages[1], 'left', 4);
+  assert.equal(await pages[1].evaluate(() => window.sim.sandbox.hud.plane.visible), true);
 
   await pages[0].locator('#racquet-hand').selectOption('left');
   await pages[1].waitForFunction(() => window.sim.sandbox.remote.racquet.parent === window.sim.sandbox.remote.left && window.sim.sandbox.network.state.paused);
@@ -267,7 +270,7 @@ try {
   assert.ok(await pages[1].evaluate(() => window.sim.sandbox.calibration.complete));
   await pages[0].evaluate(() => window.sim.resetOrigin({ yaw: 0.1, offset: [0.3, 0, -0.1] }, false));
   for (const page of pages) await page.waitForFunction(() => !window.sim.sandbox.network.state.anchors && window.sim.sandbox.network.state.players.every(p => !p.calibrated) && window.sim.sandbox.calibration.stage === 0);
-  console.log('PASS: two production clients: one-controller calibration, partial/all-pose loss without pausing, automatic avatar recovery, suspension/resume without recalibration, system recenter with origin transforms, shared center through hold B, in-VR A/B fallback for unknown reset transforms, tap-B retry, spawning/hits, audio and disabled proximity cues.');
+  console.log('PASS: two production clients: one-controller calibration, partial/all-pose loss without pausing, automatic avatar recovery, suspension/resume without recalibration, system recenter with origin transforms, shared center through hold B, in-VR A/B fallback for unknown reset transforms, tap-B retry, spawning/hits, HUD toggle, audio and disabled proximity cues.');
   }
   for (const page of pages) await page.evaluate(() => { clearInterval(window.sim.timer); window.sim.sandbox.network.leave(); });
   assert.deepEqual(errors, []);

@@ -9,7 +9,7 @@ Two players share a local HTTPS/WebXR racquetball court. Both can spawn or hit t
 1. Select your physical space and choose **Solo practice** under Play mode.
 2. Click **Start solo practice**, stand at the center facing forward, and **Enter VR**.
 3. Press **right grip** to start. Press **left trigger** to drop a ball and hit it with the right racquet. No A/B calibration or second headset is needed.
-4. Right grip pauses/resumes; left grip clears the ball; X changes speed. Tap or hold B to recenter at your current position/facing. Hand switching works as in shared play.
+4. Right grip pauses/resumes; left grip clears the ball; X shows or hides the in-headset instructions. Use the browser speed slider to change the cap. Tap or hold B to recenter at your current position/facing. Hand switching works as in shared play.
 
 Temporary controller loss does not pause practice. System resets recover inside VR without A/B samples. The server still runs all ball physics so this tests the same behavior as shared play. Only one solo session or one shared room runs on this server at a time. When ready for two players, leave solo practice, choose **Two players**, and join with both headsets for normal A/B alignment. Switching modes does not reuse solo alignment for shared play.
 
@@ -54,7 +54,7 @@ Passthrough uses a floor-based `immersive-ar` session when the browser supports 
 | Opposite-hand trigger during active play | Replace the single ball at that hand |
 | Right grip **or A** | Mark ready when paused; pause when playing |
 | Left grip **or Y** | Clear the ball |
-| **X** | Cycle maximum ball speed through 8, 20, 40, and 85 m/s |
+| **X** | Show or hide the in-headset instruction panel |
 | Tap **B** | Retry your A/B alignment inside VR; pauses the ball, keeps your partner's alignment |
 | Hold **B** for 1 second (Player 1) | Recenter the shared room at your current position/facing; preserves both alignments and clears the ball |
 | Hold Meta/Oculus button | System recenter; see behavior below |

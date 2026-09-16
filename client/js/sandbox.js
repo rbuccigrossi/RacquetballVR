@@ -3,7 +3,7 @@ import { Network } from './network.js';
 import { Calibration, centerAlignment } from './calibration.js';
 import { Avatar, createRacquet, HeadsetHUD, CalibrationMarkers } from './models.js';
 import { SpatialAudio } from './audio.js';
-import { BALL_RADIUS, STEP, racquetPose, predictBall, createRacquetSweep, MAX_BALL_SPEED, SPEED_PRESETS, HIT_COOLDOWN_MS } from './physics.js';
+import { BALL_RADIUS, STEP, racquetPose, predictBall, createRacquetSweep, HIT_COOLDOWN_MS } from './physics.js';
 import { FEET, PLAYER_PROXIMITY_ENABLED } from './config.js';
 import { distance, rotateVector, transformPoint, transformQuaternion, composeAlignment } from './math.js';
 
@@ -42,7 +42,7 @@ export class Sandbox {
     });
     this.forward = [0, 0, -1]; this.up = [0, 1, 0];
     this.lastFrame = 0; this.lastSend = 0; this.lastHit = 0; this.hitId = 0; this.poseValid = false;
-    this.lastHUD = 0; this.lastHaptic = 0; this.ball = null; this.pendingHit = null; this.localPaused = true; this.hand = 'right';
+    this.lastHUD = 0; this.lastHaptic = 0; this.ball = null; this.pendingHit = null; this.localPaused = true; this.hand = 'right'; this.hudVisible = true;
     this.remote = new Avatar(scene);
     this.localHands = { left: new THREE.Group(), right: new THREE.Group() };
     for (const hand of Object.values(this.localHands)) {
@@ -61,6 +61,10 @@ export class Sandbox {
     renderer.xr.addEventListener('sessionstart', () => this.startSession());
     renderer.xr.addEventListener('sessionend', () => this.endSession());
     document.querySelector('#enter-vr').addEventListener('click', () => this.audio.unlock().catch(() => {}));
+  }
+  toggleHud() {
+    this.hudVisible = !this.hudVisible;
+    this.hud.plane.visible = this.hudVisible;
   }
   bindUI() {
     this.proximityDistance = 1.37;
@@ -183,7 +187,7 @@ export class Sandbox {
   startSession() {
     const session = this.renderer.xr.getSession();
     this.isPassthrough = session.environmentBlendMode === 'alpha-blend' || session.environmentBlendMode === 'additive';
-    this.hud.plane.visible = true;
+    this.hud.plane.visible = this.hudVisible;
     this.seedAlignment = null; this.recenterPending = false;
     this.restartCalibration();
     this.reference = this.renderer.xr.getReferenceSpace();
@@ -198,6 +202,7 @@ export class Sandbox {
     this.reference?.removeEventListener('reset', this.resetListener);
     this.calibration = null; this.seedAlignment = null; this.pendingAnchors = null;
     this.hud.plane.visible = false; this.ballMesh.visible = false; this.remote.group.visible = false;
+    this.hudVisible = true;
     this.localPaused = true; this.poseValid = false; this.ball = null; this.hasPaddle = false;
     this.rig.position.set(0, 0, 0); this.rig.rotation.set(0, 0, 0);
     for (const hand of Object.values(this.localHands)) hand.visible = false;
@@ -328,10 +333,8 @@ export class Sandbox {
             if (hand === 'right' && i === 0 && this.tracked.right && this.seedAlignment) this.calibration?.startSample(now);
           } else if (hand === 'right' && (i === 1 || i === 4)) this.readyOrPause();
           else if (hand === 'left' && (i === 1 || i === 5)) this.network.send({ type: 'reset' });
-          else if (hand === 'left' && i === 4) {
-            const current = this.network.state?.speed || MAX_BALL_SPEED;
-            this.network.send({ type: 'speed', value: SPEED_PRESETS.find(speed => speed > current) || SPEED_PRESETS[0] });
-          } else if (hand !== this.hand && i === 0 && this.tracked[hand] && !this.localPaused && this.network.fresh) {
+          else if (hand === 'left' && i === 4) this.toggleHud();
+          else if (hand !== this.hand && i === 0 && this.tracked[hand] && !this.localPaused && this.network.fresh) {
             // Replace immediately with one provisional ball, then reconcile its ID.
             transformPoint(this.world[hand].p, this.raw[hand].p, this.calibration.alignment);
             this.pendingSpawn = { oldId: this.network.state?.ball?.id || 0, at: now };
@@ -350,7 +353,7 @@ export class Sandbox {
     this.lastFrame = now;
     const state = this.network.state;
     if (!frame || !session) { this.remote.group.visible = false; this.ballMesh.visible = false; return; }
-    this.hud.plane.visible = true;
+    this.hud.plane.visible = this.hudVisible;
     if (gap) this.hasPaddle = false;
     this.poseValid = this.readTracking(frame, session);
     this.prepareSolo();
